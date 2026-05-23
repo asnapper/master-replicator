@@ -1,0 +1,105 @@
+[
+  {
+    "id": "task-001",
+    "title": "Add formatting helpers: format_local_iso, format_footer, render_missing_state in formatting.py",
+    "type": "backend",
+    "description": "Add three new public helpers to pipeline_status/formatting.py per ADR Decisions 6, 7, and 10. Extract format_local_iso(dt: datetime) -> str from the existing v1 mtime formatter so both v1 mtime rendering and the v2 watch footer share one code path; the v1 mtime path MUST produce byte-identical output. Add format_footer(now: datetime, interval: int) -> str returning the exact footer line 'Last refresh: <ISO-8601 local time with offset>  (interval: <N>s, press Ctrl+C to stop)' with no trailing newline. Add render_missing_state(state_dir: Path) -> str returning the placeholder body for watch mode when .claude/state/ is absent (header 'Pipeline Status' with '===============' underline, blank line, '  .claude/state/: MISSING', trailing newline). formatting.render(...) signature and observable output MUST remain unchanged.",
+    "acceptance_criteria": [
+      "format_local_iso(dt: datetime) -> str importable from pipeline_status.formatting; rejects naive datetimes; returns ISO-8601 string with second precision and timezone offset",
+      "The v1 mtime-rendering code path inside formatting.render(...) now calls format_local_iso(...) internally; existing tests/test_formatting.py continues to pass unchanged",
+      "format_footer(now: datetime, interval: int) -> str importable; for datetime(2026, 5, 23, 5, 54, 36, tzinfo=timezone(timedelta(hours=2))) and interval=2, returns exactly 'Last refresh: 2026-05-23T05:54:36+02:00  (interval: 2s, press Ctrl+C to stop)' with no trailing newline",
+      "format_footer accepts any positive int interval (verified at 1, 2, 60, 3600)",
+      "render_missing_state(state_dir: Path) -> str importable; starts with 'Pipeline Status\\n===============\\n', contains an indented '.claude/state/: MISSING' line, ends with a trailing newline",
+      "No new third-party imports; stdlib only",
+      "python -m unittest discover -s tests still passes (existing tests unchanged)"
+    ],
+    "dependencies": [],
+    "estimated_hours": 3,
+    "adr_sections": ["Decision 10: Footer timestamp source", "Decision 6: Missing .claude/state/ behaviour in watch mode", "Decision 7: Footer separator from body", "New public symbols", "Modified one-shot path"],
+    "jira_key": "KAN-12"
+  },
+  {
+    "id": "task-002",
+    "title": "Create pipeline_status/watch.py with WatchConfig, run_watch_iteration, and run_watch",
+    "type": "backend",
+    "description": "Create the new submodule pipeline_status/watch.py exporting the WatchConfig dataclass and run_watch (plus run_watch_iteration as internal or public helper) per the ADR API Contracts section. WatchConfig is a frozen dataclass with state_dir, interval, is_tty, use_colour, stream, sleep_fn, clock_fn, max_iterations fields exactly as specified. run_watch_iteration writes one iteration: TTY -> emits '\\x1b[H\\x1b[2J', non-TTY -> emits '\\n' before all but the first iteration; checks state_dir.exists() and is_dir(), on absence writes formatting.render_missing_state(...), otherwise inspect_all -> derive_stage -> formatting.render(...); then writes '\\n' + format_footer(clock_fn(), interval) + '\\n', then flush. run_watch drives the loop with sleep_fn between iterations up to max_iterations, catches KeyboardInterrupt, writes '\\n' + flush, returns 0. May depend on task-001's helper signatures from the ADR; can be coded in parallel against the documented contract.",
+    "acceptance_criteria": [
+      "from pipeline_status.watch import WatchConfig, run_watch works; module is importable without side effects",
+      "WatchConfig is a frozen dataclass with fields state_dir: Path, interval: int, is_tty: bool, use_colour: bool, stream: TextIO, sleep_fn: Callable[[float], None], clock_fn: Callable[[], datetime], max_iterations: Optional[int]",
+      "run_watch(WatchConfig(..., max_iterations=1, sleep_fn=lambda _: None, clock_fn=lambda: FIXED_DT, stream=StringIO())) returns 0 and writes body + blank-line + footer + trailing newline",
+      "With is_tty=True the first bytes are '\\x1b[H\\x1b[2J'; with is_tty=False no clear-screen sequence is emitted and consecutive renders are separated by exactly one blank line",
+      "run_watch with sleep_fn=MagicMock(side_effect=KeyboardInterrupt) returns 0, the buffer ends with '\\n', and no exception propagates",
+      "run_watch with a state_dir that does not exist renders the render_missing_state body each iteration and does NOT raise; loop continues",
+      "run_watch with a state_dir that disappears between iterations renders the report on iteration 1 and the missing-state placeholder on iteration 2 without restart",
+      "No signal handlers are installed; no filesystem writes occur; no subprocesses spawned; stdlib-only imports"
+    ],
+    "dependencies": ["task-001"],
+    "estimated_hours": 5,
+    "adr_sections": ["Decision 2: Loop control", "Decision 3: SIGINT handling", "Decision 4: Clear-screen mechanism on TTY", "Decision 5: Non-TTY rendering", "Decision 6: Missing .claude/state/ behaviour", "Data Model (WatchConfig)", "New public symbols"],
+    "jira_key": "KAN-13"
+  },
+  {
+    "id": "task-003",
+    "title": "Wire --watch and --interval argparse flags in __main__.py with dispatch to run_watch",
+    "type": "backend",
+    "description": "Extend pipeline_status/__main__.py per ADR Argparse contract. Add --watch (action='store_true') and --interval (type=_interval_type, default=2, metavar='SECONDS'). Implement _interval_type(raw: str) -> int as a custom argparse converter rejecting non-integers ('0.5', 'abc'), negatives, zero, and values >3600 by raising argparse.ArgumentTypeError; argparse converts this to exit code 2 and a stderr error before any inspector runs. Accept boundary values 1 and 3600. When args.watch is True, construct WatchConfig (state_dir, validated interval, is_tty=sys.stdout.isatty(), use_colour from the existing helper, stream=sys.stdout, sleep_fn=time.sleep, clock_fn=lambda: datetime.now().astimezone(), max_iterations=None) and call watch.run_watch(config). One-shot stdout MUST remain byte-identical to v1. --interval without --watch is accepted and silently ignored. --help documents both flags (default, min/max, 'ignored without --watch' caveat) and an epilog notes the clear-screen / terminal-height limitation.",
+    "acceptance_criteria": [
+      "pipeline-status --help exits 0 and documents --watch (with Ctrl+C hint), --interval SECONDS (default 2, min 1, max 3600, 'ignored without --watch'), and an epilog mentioning the clear-screen / terminal-height limitation",
+      "pipeline-status --interval 0, --interval -1, --interval 3601, --interval 0.5, --interval abc each exit non-zero with an argparse error on stderr before any inspector runs",
+      "pipeline-status --interval 1 and pipeline-status --interval 3600 are accepted",
+      "pipeline-status --interval 5 (without --watch) produces stdout byte-identical to pipeline-status with no flags, for the same filesystem state",
+      "pipeline-status --watch --interval 2 dispatches to watch.run_watch(...) with a correctly populated WatchConfig",
+      "One-shot stdout is byte-identical to the v1 release for any given filesystem state; tests/test_inspectors.py, tests/test_stage.py, tests/test_formatting.py pass unchanged",
+      "Missing .claude/state/ in one-shot mode still exits 2 with a stderr message and no stdout (v1 behaviour preserved)",
+      "main() is importable without triggering I/O or sys.exit"
+    ],
+    "dependencies": ["task-001", "task-002"],
+    "estimated_hours": 3,
+    "adr_sections": ["Argparse contract", "Decision 8: --interval without --watch", "CLI surface"],
+    "jira_key": "KAN-14"
+  },
+  {
+    "id": "task-004",
+    "title": "Write tests/test_watch.py covering argparse, run_watch, TTY/non-TTY, missing state, Ctrl+C",
+    "type": "test",
+    "description": "Add tests/test_watch.py using stdlib unittest, io.StringIO, and unittest.mock only. Cover FR-15 and FR-18 plus argparse FR-3. No subprocesses, no real time.sleep with non-zero arg, no signal delivery. Use unittest.mock.patch to flip is_tty. Use tmp_path-style temporary directories for missing-state cases. Use sleep_fn=MagicMock(side_effect=KeyboardInterrupt) for the Ctrl+C path. Inject clock_fn=lambda: datetime(2026, 5, 23, 5, 54, 36, tzinfo=timezone(timedelta(hours=2))) so footer assertions are deterministic. Add a byte-identical-one-shot regression test that calls formatting.render(...) on a known ArtefactResult fixture and compares to a captured golden string (guards the format_local_iso refactor).",
+    "acceptance_criteria": [
+      "tests/test_watch.py exists and uses stdlib unittest only",
+      "Test: _interval_type('0'), '-1', '3601', '0.5', 'abc' each raise argparse.ArgumentTypeError (or parser.parse_args raises SystemExit with non-zero code)",
+      "Test: _interval_type('1') returns 1 and _interval_type('3600') returns 3600",
+      "Test: one-iteration run_watch with injected fixed clock and no-op sleep writes exactly one body + blank line + footer + trailing newline; footer matches canonical string for interval=2",
+      "Test: N-iteration (e.g. 3) run_watch produces 3 body+footer blocks; non-TTY mode separates with exactly one blank line; TTY mode prefixes each iteration with '\\x1b[H\\x1b[2J'",
+      "Test: TTY branch emits '\\x1b[H\\x1b[2J'; non-TTY branch does NOT emit it",
+      "Test: state_dir that does not exist renders render_missing_state body across multiple iterations and does NOT raise",
+      "Test: sleep_fn=MagicMock(side_effect=KeyboardInterrupt) causes run_watch to return 0, write a trailing newline, and not raise",
+      "Test: formatting.render(...) on a known ArtefactResult fixture produces a byte-identical golden string (regression guard for the format_local_iso refactor)",
+      "python -m unittest discover -s tests completes in under 5 s on a modern laptop; existing test files pass unchanged"
+    ],
+    "dependencies": ["task-001", "task-002", "task-003"],
+    "estimated_hours": 5,
+    "adr_sections": ["Testability seam", "Migration steps step 5", "Known edge cases"],
+    "jira_key": "KAN-15"
+  },
+  {
+    "id": "task-005",
+    "title": "Update README to document --watch and --interval usage",
+    "type": "test",
+    "description": "Update README.md to document the new --watch and --interval flags introduced in v2. The v1 README documents only one-shot usage; add a 'Watch mode' section describing: purpose of --watch; --interval SECONDS with default 2, min 1, max 3600, integer-only; the 'ignored without --watch' rule; sample invocation; sample footer line; Ctrl+C exit-0 behaviour; non-TTY pipe/redirect behaviour (no clear-screen, one blank line between renders); missing-state placeholder behaviour in watch mode (contrasted with one-shot exit 2); cross-platform note (Linux/macOS/Windows 10+ with VT processing, no colorama); accepted terminal-height limitation. Update the exit-code table to mention watch-mode exit 0 on Ctrl+C and clarify watch mode tolerates missing state. Existing v1 sections (install, one-shot invocation, NO_COLOR) MUST NOT be removed.",
+    "acceptance_criteria": [
+      "README.md contains a new section documenting watch mode",
+      "--watch is documented including the Ctrl+C-to-stop behaviour",
+      "--interval is documented including default 2, range [1, 3600], integer-only, and the 'ignored without --watch' rule",
+      "At least one sample invocation 'pipeline-status --watch [--interval N]' is shown",
+      "At least one sample footer line is shown in the documented format",
+      "Non-TTY behaviour (no clear-screen, one blank line between renders) is documented",
+      "Missing-state behaviour in watch mode (placeholder + continue) is documented and contrasted with one-shot exit 2",
+      "Cross-platform note for Linux / macOS / Windows 10+ (no colorama, VT on by default) is included",
+      "Existing v1 README sections (install, one-shot invocation, exit codes, NO_COLOR) remain present",
+      "No new third-party dependencies are mentioned"
+    ],
+    "dependencies": ["task-003"],
+    "estimated_hours": 2,
+    "adr_sections": ["CLI surface", "Decision 4: Clear-screen mechanism", "Decision 5: Non-TTY rendering", "Decision 6: Missing .claude/state/ behaviour"],
+    "jira_key": "KAN-16"
+  }
+]
