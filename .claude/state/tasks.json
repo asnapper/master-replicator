@@ -1,0 +1,157 @@
+[
+  {
+    "id": "task-001",
+    "title": "Scaffold package layout: pyproject.toml, pipeline_status/__init__.py, and __main__.py skeleton",
+    "type": "backend",
+    "description": "Create the full project scaffold for the pipeline_status package. This includes pyproject.toml with a hatchling build backend and a pipeline-status console script entry point, pipeline_status/__init__.py exporting __version__ = '0.1.0', a minimal pipeline_status/__main__.py that is importable and runnable via python -m pipeline_status with --help support, and tests/__init__.py. No business logic yet — just the skeleton that makes the package installable and invokable across Python 3.10–3.13 on Linux, macOS, and Windows.",
+    "acceptance_criteria": [
+      "pyproject.toml present with hatchling backend and pipeline-status console script pointing to pipeline_status.__main__:main",
+      "pip install -e . succeeds with no external runtime dependencies",
+      "python -m pipeline_status --help exits 0 and prints usage text",
+      "pipeline-status --help (console script) exits 0 and prints usage text",
+      "from pipeline_status import __version__ returns '0.1.0'",
+      "tests/__init__.py exists (may be empty)"
+    ],
+    "dependencies": [],
+    "estimated_hours": 3,
+    "adr_sections": ["Package layout", "Packaging"],
+    "jira_key": "KAN-4"
+  },
+  {
+    "id": "task-002",
+    "title": "Implement ArtefactResult dataclass and artefact inspector functions in inspectors.py",
+    "type": "backend",
+    "description": "Define the ArtefactResult dataclass and implement one inspector function per artefact in pipeline_status/inspectors.py. Inspectors must check file existence, detect filled vs. empty/placeholder state (zero-byte, whitespace-only, markdown heading-only, JSON {}/[]), record mtime as ISO-8601 with UTC offset, and cap reads at 10 MiB. For tasks.json, parse task count and completed count, accepting both array and {tasks:[...]} object shapes and reporting malformed JSON in the error field without crashing. No eval/exec; json.load only.",
+    "acceptance_criteria": [
+      "ArtefactResult dataclass importable from pipeline_status.inspectors with fields: name, path, exists, filled, mtime_iso, extra, error",
+      "inspect_feature_request(), inspect_requirements(), inspect_adr(), inspect_tasks(), inspect_worktrees() all importable and callable with a Path argument",
+      "Missing file yields exists=False, filled=False, mtime_iso=None",
+      "Zero-byte, whitespace-only, and markdown-heading-only files yield filled=False",
+      "{} and [] JSON files yield filled=False",
+      "inspect_tasks() populates extra['total'] and extra['completed'] for valid JSON",
+      "Malformed tasks.json sets error field without raising an exception",
+      "Reads capped at 10 MiB (file.read(10 * 1024 * 1024 + 1) pattern or equivalent)"
+    ],
+    "dependencies": [],
+    "estimated_hours": 5,
+    "adr_sections": ["ArtefactResult dataclass", "Filled-detection", "tasks.json shape"],
+    "jira_key": "KAN-5"
+  },
+  {
+    "id": "task-003",
+    "title": "Implement derive_stage() pure function in stage.py",
+    "type": "backend",
+    "description": "Implement derive_stage() in pipeline_status/stage.py as a pure function that accepts a mapping of artefact name to ArtefactResult and returns a human-readable pipeline stage string. The function must follow the seven ordered stage rules defined in the requirements (from 'Awaiting feature request' through 'Pipeline complete'). It must have no file I/O or global state side effects and must be deterministic. The input contract must be documented in a module-level docstring. The 'all tasks done' check must require extra['total'] == extra['completed'] and both greater than zero.",
+    "acceptance_criteria": [
+      "from pipeline_status.stage import derive_stage works",
+      "Each of the 7 stage strings is reachable given the correct ArtefactResult inputs",
+      "Function is pure: no file I/O, no global state mutation, no randomness",
+      "Module-level docstring documents the expected mapping keys and ArtefactResult fields consumed",
+      "'All tasks done' check requires extra['total'] == extra['completed'] with both > 0"
+    ],
+    "dependencies": ["task-002"],
+    "estimated_hours": 3,
+    "adr_sections": ["Stage logic", "derive_stage()"],
+    "jira_key": "KAN-6"
+  },
+  {
+    "id": "task-004",
+    "title": "Implement ANSI colour helpers and output formatters in formatting.py",
+    "type": "backend",
+    "description": "Implement pipeline_status/formatting.py with colour helpers and line/table formatters used by the CLI. Colour output must only be emitted when sys.stdout.isatty() is True AND the NO_COLOR environment variable is not set. Expose colorize(text, color) as a no-op when colour is disabled, format_artefact_row(result: ArtefactResult) -> str producing one display line per artefact (including task counts for tasks.json), and format_stage_line(stage: str) -> str. All output must be deterministic given the same inputs.",
+    "acceptance_criteria": [
+      "colorize() returns plain text when NO_COLOR is set or stdout is not a TTY",
+      "colorize() returns ANSI-escaped text when colour is enabled (TTY and no NO_COLOR)",
+      "format_artefact_row() includes artefact name, exists indicator, filled indicator, and mtime or dash if absent",
+      "format_artefact_row() includes task counts (e.g. '3/5 tasks done') when extra['total'] is present",
+      "format_stage_line() returns a non-empty string for any of the 7 valid stage strings",
+      "Output is deterministic: identical inputs produce byte-identical output"
+    ],
+    "dependencies": ["task-002"],
+    "estimated_hours": 3,
+    "adr_sections": ["Colour", "formatting.py"],
+    "jira_key": "KAN-7"
+  },
+  {
+    "id": "task-005",
+    "title": "Wire __main__.py: argparse CLI, full output orchestration, and exit codes",
+    "type": "backend",
+    "description": "Complete pipeline_status/__main__.py by wiring argparse, all five inspector functions, derive_stage(), and the formatters into a cohesive CLI. The entry point must locate .claude/state/ relative to CWD, exit 2 with a stderr error message if it does not exist (no stdout output in that case), run all five inspectors, print one formatted row per artefact, print the derived pipeline stage, and exit 0 on success. ANSI colour is governed by the formatting module. The main() function must be importable without side effects for testability.",
+    "acceptance_criteria": [
+      "python -m pipeline_status exits 0 when .claude/state/ exists",
+      "python -m pipeline_status exits 2 with a stderr message (and no stdout) when .claude/state/ is absent",
+      "Output includes exactly one row per artefact: feature-request, requirements, adr, tasks, worktrees",
+      "Output includes a pipeline stage line produced by format_stage_line()",
+      "--help exits 0 and lists all CLI options",
+      "main() is importable without triggering any file I/O or sys.exit"
+    ],
+    "dependencies": ["task-002", "task-003", "task-004"],
+    "estimated_hours": 3,
+    "adr_sections": ["__main__.py", "Exit codes"],
+    "jira_key": "KAN-8"
+  },
+  {
+    "id": "task-006",
+    "title": "Write unit tests for all artefact inspectors in tests/test_inspectors.py",
+    "type": "test",
+    "description": "Write tests/test_inspectors.py using stdlib unittest and tempfile/pathlib for fixture setup. Cover every inspector function and every branch of filled-detection logic. Tests must not touch the real .claude/state/ directory; use tempfile.TemporaryDirectory for all filesystem fixtures. Each test should be independently runnable and leave no side effects on disk.",
+    "acceptance_criteria": [
+      "At least one test method per inspector function (minimum 5 test methods)",
+      "Test: missing file yields exists=False, filled=False",
+      "Test: zero-byte file yields filled=False",
+      "Test: whitespace-only content yields filled=False",
+      "Test: markdown with only a heading line yields filled=False",
+      "Test: markdown with heading plus body content yields filled=True",
+      "Test: {} JSON yields filled=False; [] JSON yields filled=False",
+      "Test: valid tasks JSON array yields correct extra['total'] and extra['completed']",
+      "Test: {tasks:[...]} object shape yields correct counts",
+      "Test: malformed JSON sets error field and does not raise",
+      "python -m unittest tests/test_inspectors exits 0 with all tests passing"
+    ],
+    "dependencies": ["task-002"],
+    "estimated_hours": 5,
+    "adr_sections": ["Unit tests", "test_inspectors.py"],
+    "jira_key": "KAN-9"
+  },
+  {
+    "id": "task-007",
+    "title": "Write unit tests for derive_stage() in tests/test_stage.py",
+    "type": "test",
+    "description": "Write tests/test_stage.py using stdlib unittest. Test derive_stage() exhaustively against all seven pipeline stage outcomes. Construct ArtefactResult instances directly without any file I/O. Verify each stage boundary condition precisely: the correct stage string is returned at the exact transition point and not one step earlier.",
+    "acceptance_criteria": [
+      "Minimum 7 test methods, one per distinct stage string",
+      "Test: feature-request filled=False yields 'Awaiting feature request'",
+      "Test: feature-request filled, requirements filled=False yields 'Awaiting Gate 1 (PO review)'",
+      "Test: through requirements filled, adr filled=False yields 'Awaiting Gate 2 (Architect review)'",
+      "Test: through adr filled, tasks filled=False yields 'Awaiting Gate 3 (PM review)'",
+      "Test: through tasks filled, worktrees filled=False yields 'Awaiting Gate 4 (Engineering kick-off)'",
+      "Test: all filled, tasks not all done yields 'Engineering in progress'",
+      "Test: all filled, extra['total'] == extra['completed'] > 0 yields 'Pipeline complete'",
+      "python -m unittest tests/test_stage exits 0 with all tests passing"
+    ],
+    "dependencies": ["task-003"],
+    "estimated_hours": 3,
+    "adr_sections": ["Unit tests", "test_stage.py"],
+    "jira_key": "KAN-10"
+  },
+  {
+    "id": "task-008",
+    "title": "Write unit tests for formatting.py and update README with usage instructions",
+    "type": "test",
+    "description": "Write tests/test_formatting.py using stdlib unittest. Use unittest.mock to patch sys.stdout.isatty and os.environ for colour-toggling tests. Verify all formatter public functions. Also update README.md to document installation via pip install -e ., both invocation forms (python -m pipeline_status and pipeline-status), a sample output block, exit codes (0 and 2), and the NO_COLOR environment variable.",
+    "acceptance_criteria": [
+      "Test: colorize() with NO_COLOR set in os.environ returns plain text",
+      "Test: colorize() with isatty() returning False returns plain text",
+      "Test: colorize() with isatty() returning True and NO_COLOR unset returns ANSI escape sequences",
+      "Test: format_artefact_row() returns a string containing the artefact name",
+      "Test: format_artefact_row() includes task count text when extra['total'] is present",
+      "Test: format_stage_line() returns a non-empty string for each of the 7 stage strings",
+      "README.md contains install command, both invocation forms, sample output, exit code table, NO_COLOR description",
+      "python -m unittest tests/test_formatting exits 0 with all tests passing"
+    ],
+    "dependencies": ["task-004", "task-005"],
+    "estimated_hours": 3,
+    "adr_sections": ["Unit tests", "test_formatting.py", "README"],
+    "jira_key": "KAN-11"
+  }
+]
