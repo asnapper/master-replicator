@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.mypy_cache
+.coverage
+tests
+README.md
+.gitignore
+.dockerignore
+Dockerfile
