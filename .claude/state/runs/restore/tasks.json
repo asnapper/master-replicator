@@ -1,0 +1,130 @@
+{
+  "feature": "restore",
+  "project": "KAN",
+  "cloudId": "c39f4e77-8863-48a4-8134-1ebfcb36ad00",
+  "summary": "v4 Feature B: pipeline-status restore subcommand (archive -> live state copy with all-or-nothing collision detection and --force).",
+  "waves": [
+    {
+      "wave": 1,
+      "parallel": true,
+      "task_ids": ["task-001", "task-003"]
+    },
+    {
+      "wave": 2,
+      "parallel": false,
+      "task_ids": ["task-002"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "adr_id": "B1",
+      "jira_key": "KAN-22",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-22",
+      "title": "restore B1: implement pipeline_status/restore.py + tests/test_restore.py",
+      "branch": "feature/task-001-restore-module",
+      "wave": 1,
+      "depends_on": [],
+      "owns_production_files": [
+        "pipeline_status/restore.py"
+      ],
+      "owns_test_files": [
+        "tests/test_restore.py"
+      ],
+      "imports_from_master": [
+        "stdlib (argparse, shutil, sys, pathlib.Path)",
+        "pipeline_status.archive.TRACKED_ARTEFACTS (lazy import inside run_restore)",
+        "pipeline_status.archive.slugify (lazy import inside run_restore)"
+      ],
+      "imports_from_sibling_tasks": [],
+      "public_symbols": [
+        "run_restore(args: argparse.Namespace) -> int",
+        "add_restore_subparser(subparsers) -> argparse.ArgumentParser"
+      ],
+      "description": "Create the new pipeline_status/restore.py module (action callable + subparser registrar) and the new tests/test_restore.py test file. This is the only production module Feature B adds; all behaviour lives here. Algorithm is the three-phase enumerate/gate/copy from ADR Decision 3, with the directory-overwrite guard from Decision 5. TRACKED_ARTEFACTS and slugify are lazy-imported from pipeline_status.archive INSIDE run_restore (not at module top level), preserving the v3 import-cost invariant for all non-restore CLI paths. stdlib only at module scope; no ANSI; no pipeline_status.formatting consumption.",
+      "acceptance_criteria": [
+        "New file pipeline_status/restore.py created with exactly the two public symbols run_restore and add_restore_subparser and the signatures from the ADR's API Contracts section.",
+        "run_restore implements the two-phase enumerate-then-copy algorithm from Decision 3: Phase 1 builds present and conflicts by iterating TRACKED_ARTEFACTS in declaration order; Phase 2 gates; Phase 3 copies.",
+        "Pre-flight collision detection finds ALL conflicting basenames before any copy begins; the conflict error lists every conflict (not just the first).",
+        "No partial restore on any failure path: if any gate fails (state-dir missing, empty slug, archive missing, conflicts without --force, directory-target with --force), run_restore returns the exit code without having called shutil.copy2 even once.",
+        "--force overwrites existing live files via shutil.copy2 (content + mtime + permissions) but NEVER overwrites a directory at the target path - the Decision 5 guard (is_dir() and not is_symlink() on each state_dir/b in present) triggers before any copy with the message 'pipeline-status: error: cannot overwrite directory: <state_dir>/<basename>' and returns exit 1.",
+        "--force does NOT delete or modify any live file under .claude/state/ whose basename is absent from present (files not in the archive remain untouched, including non-TRACKED_ARTEFACTS files like worktrees.json when absent).",
+        "TRACKED_ARTEFACTS and slugify are imported via 'from pipeline_status.archive import TRACKED_ARTEFACTS, slugify' placed INSIDE the run_restore function body, not at module top level. The v3 import-cost invariant is preserved.",
+        "Test case (m) asserts the lazy-import discipline: after 'import pipeline_status.restore' (with sys.modules popped first), 'pipeline_status.archive' is NOT in sys.modules.",
+        "Error strings match Decision 7 verbatim (no trailing whitespace, no ANSI): 'pipeline-status: error: .claude/state/ not found or not a directory'; 'pipeline-status: error: archive name is empty after normalisation'; 'pipeline-status: error: archive <NAME!r> not found at <archive_dir>' (single-quoted via f-string !r, matching v3 history NAME wording; <archive_dir> is str(archive_dir)); 'pipeline-status: error: refusing to overwrite existing file(s): <basename1>, <basename2>, ...' (comma-space separated, in TRACKED_ARTEFACTS declaration order); 'pipeline-status: error: cannot overwrite directory: <state_dir>/<basename>'.",
+        "Exit codes per Decision 7: 2 for .claude/state/ missing or not a directory (matches v1 missing-state convention); 1 for empty slug after normalisation; 1 for archive directory missing / not a directory; 1 for conflict without --force; 1 for live target in present being a directory with --force; 0 for success (including N=0 empty-archive case); argparse rejection (exit 2) of --watch, --interval, missing positional falls out of subparser configuration.",
+        "On success, stdout receives exactly 'Restored N file(s) from .claude/state/archive/<slug>/\\n' (where <slug> is the slug-normalised name, NOT the raw args.name), and N is the integer count of files actually copied (0..5 inclusive).",
+        "shutil.copy2 is the file-copy primitive (matching v3 archive.run_archive's symmetry - content + mtime + permissions). NOT shutil.copyfile, NOT os.replace, NOT Path.write_bytes.",
+        "archive_dir.is_dir() is the single gate for 'archive present' (handles missing parent, regular file at the path, broken symlink, and valid symlinked-directory all in one call). NO Path.resolve() is called.",
+        "--force is action='store_true', default False, long form only - '-f' is NOT declared.",
+        "add_restore_subparser calls sp.set_defaults(func=run_restore) so the __main__ dispatch (args.func(args)) finds the callable.",
+        "New file tests/test_restore.py covers all FR-21 scenarios (a)-(m) using unittest + tempfile.TemporaryDirectory + os.chdir/addCleanup. No subprocess, no network. Total wall time under 2 seconds.",
+        "Tests assert exact stderr strings (Decision 7), exact stdout strings (Restored N file(s) from .claude/state/archive/<slug>/), and exact exit codes for every scenario.",
+        "Test case (e) explicitly asserts that multiple conflicts are listed in TRACKED_ARTEFACTS declaration order (NOT in state_dir.iterdir() order).",
+        "Test case (g) explicitly asserts that --force leaves a live worktrees.json untouched when the archive does not contain it.",
+        "Test case (k) registers the restore subparser on a local argparse parser (or uses _build_parser from __main__) and asserts that invoking 'restore foo --watch' or 'restore foo --interval 5' raises SystemExit with code 2.",
+        "No write or read occurs outside state_dir (for the existence check) and archive_dir (for the copy source). No lockfile, PID file, manifest, index, cache, or backup file is created."
+      ]
+    },
+    {
+      "id": "task-002",
+      "adr_id": "B2",
+      "jira_key": "KAN-24",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-24",
+      "title": "restore B2: wire add_restore_subparser into pipeline_status/__main__.py",
+      "branch": "feature/task-002-restore-wiring",
+      "wave": 2,
+      "depends_on": ["task-001"],
+      "owns_production_files": [
+        "pipeline_status/__main__.py"
+      ],
+      "owns_test_files": [],
+      "imports_from_master": [
+        "the existing pipeline_status.__main__ imports"
+      ],
+      "imports_from_sibling_tasks": [
+        "pipeline_status.restore.add_restore_subparser (from task-001)"
+      ],
+      "public_symbols": [],
+      "description": "Wire the new restore subcommand into pipeline_status/__main__.py::_build_parser(). The patch is EXACTLY two added lines: one import line ('from pipeline_status.restore import add_restore_subparser', placed alphabetically between pipeline_status.history and pipeline_status.inspectors) and one registration call line ('add_restore_subparser(subparsers)', placed immediately after add_history_subparser(subparsers) per Decision 8). No other change to __main__.py is permitted. The dispatch in main() and the subparsers creation line are already in place from v3 and MUST NOT be altered. Depends on task-001 for the add_restore_subparser symbol; lands LAST in the dispatch wave. Cross-feature merge note: Feature A's diff wiring does the symmetric edit; the git merge sees both features touching adjacent regions and the resolution is 'keep both lines'.",
+      "acceptance_criteria": [
+        "Exactly one new import line is added to the existing import block: 'from pipeline_status.restore import add_restore_subparser'.",
+        "The import line is positioned alphabetically between pipeline_status.history and pipeline_status.inspectors imports.",
+        "Exactly one new call line is added inside _build_parser: 'add_restore_subparser(subparsers)'.",
+        "The call line is positioned immediately after 'add_history_subparser(subparsers)' and before 'return parser' (Decision 8 - restore registered last).",
+        "No other line in pipeline_status/__main__.py is changed: _interval_type, _locate_state_dir, _run_one_shot, _EPILOG, _STATE_DIR, the module docstring, main(), and the 'subparsers = parser.add_subparsers(...)' line are all byte-identical to master.",
+        "No new tests are added in this task; the master tests/test_main_subcommands.py already covers subparser-dispatch wiring for arbitrary subcommands via args.func(args), and task-001's tests/test_restore.py covers the action callable.",
+        "pipeline-status --help now lists 'restore' in the {archive,history,restore} subcommand usage line (this is the only --help delta).",
+        "All v1/v2/v3 stdout paths (no-args one-shot, --watch, archive, history, history NAME) remain byte-identical for identical filesystem state.",
+        "pipeline-status restore --help displays the positional NAME, the --force flag, and the description text registered by add_restore_subparser in task-001."
+      ]
+    },
+    {
+      "id": "task-003",
+      "adr_id": "B3",
+      "jira_key": "KAN-26",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-26",
+      "title": "restore B3: add `### restore` subsection to README.md",
+      "branch": "feature/task-003-restore-readme",
+      "wave": 1,
+      "depends_on": [],
+      "owns_production_files": [
+        "README.md"
+      ],
+      "owns_test_files": [],
+      "imports_from_master": [],
+      "imports_from_sibling_tasks": [],
+      "public_symbols": [],
+      "description": "Add a self-contained '### restore' subsection under the existing '## CLI' (or equivalent) heading in README.md, placed alphabetically/chronologically last among the v3+v4 subcommand subsections (after archive and history, per Decision 8). The subsection content is one paragraph of behaviour, two examples (with and without --force), an exit-code matrix (0 / 1 / 2), and a cross-reference paragraph linking restore to archive and history - matching the ADR Task B3 sketch verbatim in substance. The subsection MUST be self-contained: no edits to any other paragraph, heading, or example in README.md, so that Feature A's symmetric ### diff subsection can land independently without textual conflict. Lands in Wave 1 in parallel with task-001.",
+      "acceptance_criteria": [
+        "README.md gains exactly one new '### restore' subsection placed under the existing '## CLI' (or equivalent top-level CLI) heading.",
+        "The subsection is placed alphabetically/chronologically last among the v3+v4 subcommands - after ### archive and ### history if those subsections exist, or in the natural position dictated by the README's existing structure.",
+        "The subsection content matches the ADR Task B3 sketch verbatim in substance: one paragraph of behaviour, two examples (one without --force, one with --force), an exit-code matrix (0 / 1 / 2), and a cross-reference paragraph linking restore to archive and history.",
+        "Exit-code wording matches the production code's actual strings: success line 'Restored N file(s) from .claude/state/archive/<slug>/'; exit 1 covers archive-not-found, empty-slug, conflict-without-force, and directory-target-with-force; exit 2 covers state-dir missing.",
+        "No other paragraph, heading, or example in README.md is edited. The diff is one new self-contained subsection only.",
+        "No production code or test files are touched by this task.",
+        "The subsection's example invocations and exit-code descriptions match the actual behaviour implemented in task-001 (docs are truth, not aspiration)."
+      ]
+    }
+  ]
+}

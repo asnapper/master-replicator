@@ -1,0 +1,144 @@
+{
+  "feature": "diff",
+  "feature_label": "pipeline-status diff subcommand",
+  "generated_at": "2026-05-23",
+  "jira": {
+    "cloud_id": "c39f4e77-8863-48a4-8134-1ebfcb36ad00",
+    "project_key": "KAN",
+    "site": "asnapper.atlassian.net"
+  },
+  "notes": [
+    "Ticket numbering is shared with the sibling 'restore' pipeline (Feature B); gaps in the KAN-23..KAN-28 range (KAN-24, KAN-26) belong to the restore PM and are expected.",
+    "ADR-vs-requirements delta: the requirements text (FR-5 / NFR 'Dependencies') loosely says 'at most ONE new submodule (pipeline_status/diff.py)'; the ADR (Decision 2) deliberately splits this into TWO modules (diff_archives.py + format_diff.py) to support parallel fan-out across two engineers. Tickets A1 and A2 reflect the ADR's split.",
+    "Recommended sequencing (per ADR Implementation Notes): A1, A2, A4 dispatched in parallel as wave 1; A3 dispatched in wave 2 after A1 has merged so the `from pipeline_status.diff_archives import add_diff_subparser` import target exists."
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "parallel": true,
+      "task_ids": ["task-001", "task-002", "task-004"]
+    },
+    {
+      "wave": 2,
+      "parallel": false,
+      "task_ids": ["task-003"],
+      "blocked_until": ["task-001"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "label": "A1",
+      "jira_key": "KAN-23",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-23",
+      "title": "[diff/A1] Add pipeline_status/diff_archives.py — compute_diff + DiffReport + subparser",
+      "summary": "Implement the comparison-logic half of `pipeline-status diff`: the diff_archives module (compute_diff, DiffReport, ArtefactDiff, _read_capped, add_diff_subparser, run_diff) and its unit tests.",
+      "branch": "feature/task-001-diff-archives",
+      "depends_on": [],
+      "owns_files": [
+        "pipeline_status/diff_archives.py",
+        "tests/test_diff_archives.py"
+      ],
+      "wave": 1,
+      "acceptance_criteria": [
+        "pipeline_status/diff_archives.py exports CATEGORY_ADDED/CATEGORY_REMOVED/CATEGORY_UNCHANGED/CATEGORY_MODIFIED glyph constants, the frozen dataclasses ArtefactDiff and DiffReport, compute_diff(left_dir, right_dir) -> DiffReport, add_diff_subparser(subparsers) -> argparse.ArgumentParser, and run_diff(args) -> int (per ADR API Contracts).",
+        "ArtefactDiff and DiffReport are @dataclass(frozen=True) with the exact fields (name/category/emit_row and artefacts/added/removed/unchanged/modified) and types specified in the ADR Data Model.",
+        "Module-load-time imports are limited to argparse, sys, dataclasses, pathlib, typing, and `from pipeline_status.inspectors import MAX_READ_BYTES`; pipeline_status.archive, pipeline_status.history, and pipeline_status.format_diff are NOT imported at module load time.",
+        "archive.slugify is lazy-imported inside run_diff only (mirrors history.run_history's pattern).",
+        "format_diff_report is lazy-imported inside run_diff only.",
+        "_TRACKED_ARTEFACTS is duplicated locally as the 5-tuple ('feature-request.md', 'requirements.md', 'adr.md', 'tasks.json', 'worktrees.json') in canonical order.",
+        "_read_capped(path) honours MAX_READ_BYTES and returns None on any OSError (including PermissionError and IsADirectoryError) per FR-19 / ADR Decision 9.",
+        "compute_diff follows the ADR sequence diagram exactly: rp_only -> +, lp_only -> -, both present with equal bytes -> =, both present with differing bytes -> M; both-unreadable -> ('=', emit_row=False); one-unreadable-one-present degenerates to + or -; both-absent -> ('=', emit_row=False).",
+        "DiffReport.artefacts is always a tuple of length 5 in canonical order; added + removed + unchanged + modified == 5 in every case.",
+        "compute_diff never raises (no propagated OSError, FileNotFoundError, etc.).",
+        "add_diff_subparser declares exactly one required positional NAME and one optional --against OTHER (default None); no --watch, no --interval, no --json, no other flags; calls sp.set_defaults(func=run_diff).",
+        "run_diff exit codes match the ADR exit-code matrix exactly: 0 on success; 1 on empty slug, missing right archive, missing left archive (with --against); 2 on missing live state (without --against).",
+        "run_diff prints the renderer output with `end=\"\"` so the renderer's trailing newline is not doubled.",
+        "Error messages match the literal strings in the ADR run_diff algorithm (e.g. 'pipeline-status: error: diff name is empty after normalisation', 'pipeline-status: error: .claude/state/ not found or not a directory').",
+        "tests/test_diff_archives.py uses only stdlib unittest + tempfile + unittest.mock and covers: all four categories with a mixed-content fixture; both-absent omitted from rows but counted as unchanged; MAX_READ_BYTES cap (differ only beyond cap -> =); _read_capped returns None on OSError; both-unreadable -> ('=', emit_row=False); one-unreadable-one-present -> + or -; footer counts always sum to 5; add_diff_subparser smoke (positional + optional + set_defaults(func=run_diff)); argparse rejection of ['diff'] missing NAME and ['diff', 'foo', '--watch']; run_diff end-to-end via tempfile.TemporaryDirectory covering exit codes 0, 1, 2 and empty-slug cases for both NAME and --against.",
+        "Tests do not spawn subprocesses, open network sockets, or touch the real .claude/state/ directory (cwd is redirected into a temp tree via os.chdir or unittest.mock).",
+        "`python -m unittest discover -s tests` is green (full suite, pre-existing + new) in under 5 seconds."
+      ]
+    },
+    {
+      "id": "task-002",
+      "label": "A2",
+      "jira_key": "KAN-25",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-25",
+      "title": "[diff/A2] Add pipeline_status/format_diff.py — DiffReport renderer",
+      "summary": "Implement the rendering half of `pipeline-status diff`: the pure format_diff_report(report) -> str function and its unit tests. Renderer is pure (no I/O, no env reads, no formatting.use_colour()).",
+      "branch": "feature/task-002-format-diff",
+      "depends_on": [],
+      "owns_files": [
+        "pipeline_status/format_diff.py",
+        "tests/test_format_diff.py"
+      ],
+      "wave": 1,
+      "acceptance_criteria": [
+        "pipeline_status/format_diff.py exports format_diff_report(report) -> str.",
+        "Module-load-time imports are stdlib only; pipeline_status.diff_archives.DiffReport may be imported under `if TYPE_CHECKING:` for static typing only.",
+        "No runtime import of pipeline_status.archive, pipeline_status.history, pipeline_status.format_history, pipeline_status.diff_archives, or pipeline_status.formatting.",
+        "For each ArtefactDiff in report.artefacts where emit_row is True, the renderer emits one line `f'{a.category} {a.name}\\n'` in input order (canonical TRACKED_ARTEFACTS order). Rows with emit_row=False emit nothing.",
+        "Between the rows section and the footer line, exactly one blank-line separator ('\\n') is emitted UNCONDITIONALLY, including in the degenerate all-emit_row=False case.",
+        "The footer is byte-for-byte `f'Diff: {report.added} added, {report.removed} removed, {report.unchanged} unchanged, {report.modified} modified.\\n'`.",
+        "The returned string always ends in a single '\\n' (the footer's).",
+        "No ANSI escape byte ('\\x1b') appears in any output (plain ASCII glyphs unconditionally per ADR Decision 7).",
+        "Renderer is pure: identical input produces identical output across repeated calls; no state, no environment reads, no clock.",
+        "tests/test_format_diff.py defines local _FakeArtefactDiff and _FakeReport shims (namedtuple or SimpleNamespace) and does NOT import pipeline_status.diff_archives, keeping A1/A2 fully parallel at test time.",
+        "Tests cover: single-row outputs of each glyph (+/-/=/M); multi-row outputs with mixed categories in canonical order; all-rows-suppressed degenerate output is exactly '\\n' + footer + '\\n'; footer wording byte-for-byte ('Diff: 1 added, 0 removed, 3 unchanged, 1 modified.\\n'); returned string ends in '\\n'; no ANSI escape; idempotency.",
+        "Tests use only stdlib unittest (+ collections.namedtuple or types.SimpleNamespace); no filesystem access, no subprocesses, no network.",
+        "`python -m unittest discover -s tests` is green (full suite, pre-existing + new) in under 5 seconds."
+      ]
+    },
+    {
+      "id": "task-003",
+      "label": "A3",
+      "jira_key": "KAN-27",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-27",
+      "title": "[diff/A3] Wire add_diff_subparser into pipeline_status/__main__.py (2-line additive edit)",
+      "summary": "Wire the diff subcommand into the CLI by adding exactly two additive lines to pipeline_status/__main__.py: one import of add_diff_subparser and one call inside _build_parser().",
+      "branch": "feature/task-003-diff-wiring",
+      "depends_on": ["task-001"],
+      "owns_files": [
+        "pipeline_status/__main__.py"
+      ],
+      "wave": 2,
+      "acceptance_criteria": [
+        "`git diff master -- pipeline_status/__main__.py` shows exactly two added lines: one `from pipeline_status.diff_archives import add_diff_subparser` and one `add_diff_subparser(subparsers)` inside `_build_parser()`. No deletions, no other modifications.",
+        "The new import is alphabetically positioned between `pipeline_status.archive` and `pipeline_status.history` in the existing `from pipeline_status.*` import block.",
+        "The new `add_diff_subparser(subparsers)` call is positioned immediately AFTER the existing `add_history_subparser(subparsers)` call inside `_build_parser()`.",
+        "`_interval_type`, `_locate_state_dir`, `_run_one_shot`, `_EPILOG`, `_STATE_DIR`, `main()`'s body, the watch-mode lazy import block, and every docstring/comment/blank-line are byte-identical to master.",
+        "`pipeline-status` (no args) stdout is byte-identical to master for any given filesystem state (v1 contract preserved).",
+        "`pipeline-status --watch` and `pipeline-status --watch --interval N` behaviour is byte-identical to master (v2 contract preserved).",
+        "`pipeline-status archive`, `pipeline-status archive --name N`, `pipeline-status history`, `pipeline-status history NAME` are byte-identical to master (v3 contract preserved).",
+        "`python -m pipeline_status --help` lists `{archive,history,diff}` in its usage line (help text wording is not part of the byte-identical contract).",
+        "`python -m pipeline_status diff --help` runs cleanly and describes the positional NAME and the optional --against OTHER.",
+        "All pre-existing tests pass unchanged; `python -m unittest discover -s tests` is green in under 5 seconds.",
+        "No file other than `pipeline_status/__main__.py` is modified by this task. In particular tests/test_main_subcommands.py is not touched."
+      ]
+    },
+    {
+      "id": "task-004",
+      "label": "A4",
+      "jira_key": "KAN-28",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-28",
+      "title": "[diff/A4] Add README.md section documenting `pipeline-status diff`",
+      "summary": "Append/insert one new self-contained section to README.md documenting `pipeline-status diff [--against OTHER] NAME`: description, two-mode contract, four glyph categories, example invocation, exit-code matrix, and the --watch-not-accepted note.",
+      "branch": "feature/task-004-diff-readme",
+      "depends_on": [],
+      "owns_files": [
+        "README.md"
+      ],
+      "wave": 1,
+      "acceptance_criteria": [
+        "README.md contains a new, self-contained section documenting `pipeline-status diff [--against OTHER] NAME`.",
+        "The section covers all six required topics: one-paragraph description; two-mode contract (live vs archive AND archive vs archive); the four glyph categories (+ / - / = / M) each with a one-sentence explanation; one example invocation with example output (one row of each category plus the footer); the exit-code matrix mirroring ADR Decision 8; and a note that --watch and --interval are not accepted with diff.",
+        "The new section is placed in alphabetical/feature order relative to existing `archive` and `history` sections, OR appended at the end if those sections do not exist; placement does not modify or reorder any other section.",
+        "No existing section, heading, paragraph, or example in README.md is modified, reordered, or deleted by this task.",
+        "`git diff master -- README.md` shows only insertions (no deletions); the inserted block is contiguous (one new section, not scattered edits).",
+        "Example output in the section matches the format_diff_report shape: rows are `<glyph><space><basename>` with no leading indentation, followed by a single blank line, followed by the footer `Diff: <a> added, <r> removed, <u> unchanged, <m> modified.`.",
+        "No file other than README.md is modified. No code change, no new files created, no tests added."
+      ]
+    }
+  ]
+}
