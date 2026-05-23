@@ -89,7 +89,7 @@ class TestFormatArtefactRow(unittest.TestCase):
 
     def test_includes_task_counts(self):
         """Row includes task count when extra[total] is set."""
-        r = self._make_result(extra={"total": 5, "done": 3})
+        r = self._make_result(extra={"total": 5, "completed": 3})
         row = format_artefact_row(r)
         self.assertIn("3/5", row)
         self.assertIn("tasks", row)
