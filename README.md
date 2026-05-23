@@ -450,3 +450,65 @@ Exit codes for `restore`:
 | `0`  | Restore succeeded (`N` may be `0` if the archive directory is empty); printed as `Restored N file(s) from .claude/state/archive/<slug>/`. |
 | `1`  | Archive directory not found, `NAME` slugifies to the empty string, one or more live targets would be overwritten and `--force` was not passed, or `--force` was passed but a live target at a tracked path is a directory. |
 | `2`  | `.claude/state/` is missing or is not a directory. |
+
+<!-- BEGIN: docker-section (Feature A) -->
+
+## Docker
+
+`pipeline-status` is published as a multi-arch (`linux/amd64`, `linux/arm64`) Docker image at [`ghcr.io/asnapper/master-replicator`](https://github.com/asnapper/master-replicator/pkgs/container/master-replicator). It bundles the CLI with all v1–v4 subcommands and runs as a non-root user (UID/GID `65532:65532`).
+
+### Quick start
+
+Mount your repo (the one containing `.claude/state/`) at `/repo` and invoke any subcommand:
+
+```bash
+# One-shot status report (v1 behaviour)
+docker run --rm -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest
+
+# Subcommand pass-through (v3/v4)
+docker run --rm -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest history
+docker run --rm -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest history watch-mode
+docker run --rm -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest diff watch-mode
+docker run --rm -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest archive --name my-snapshot
+docker run --rm -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest restore my-snapshot --force
+```
+
+### Watch mode
+
+`--watch` works the same way as the local CLI; allocate a TTY to see the screen-clear:
+
+```bash
+docker run --rm -it -v "$PWD":/repo ghcr.io/asnapper/master-replicator:latest --watch --interval 5
+```
+
+### Suppressing colour
+
+Pass `NO_COLOR=1` through the environment:
+
+```bash
+docker run --rm -v "$PWD":/repo -e NO_COLOR=1 ghcr.io/asnapper/master-replicator:latest
+```
+
+### Image tags
+
+| Tag | When pushed | Use case |
+|---|---|---|
+| `:latest` | every push to `master` | development / always-current |
+| `:sha-<short>` | every push to `master` | immutable, traceable to a commit |
+| `:vX.Y.Z` | when a `v*` git tag is pushed | semver-pinned production deployments |
+| `:X.Y` | when a `v*` git tag is pushed | minor-version pinned |
+
+### Permissions / UID mapping
+
+The image runs as UID `65532` (`pipeline:pipeline`). When mounting a host directory, ensure it's writable by that UID for the `archive` and `restore` subcommands. On Linux:
+
+```bash
+docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$PWD":/repo \
+    ghcr.io/asnapper/master-replicator:latest archive --name snapshot
+```
+
+(Or `chmod a+rwx` your `.claude/state/`.)
+
+<!-- END: docker-section (Feature A) -->
