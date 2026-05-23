@@ -19,11 +19,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from pipeline_status.archive import add_archive_subparser
 from pipeline_status.formatting import (
     format_artefact_row,
     format_stage_line,
     use_colour,
 )
+from pipeline_status.history import add_history_subparser
 from pipeline_status.inspectors import (
     inspect_adr,
     inspect_feature_request,
@@ -97,6 +99,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "(default: 2, min: 1, max: 3600; ignored without --watch)."
         ),
     )
+    subparsers = parser.add_subparsers(dest="cmd", required=False)
+    add_archive_subparser(subparsers)
+    add_history_subparser(subparsers)
     return parser
 
 
@@ -150,6 +155,12 @@ def main() -> None:
     validates it early), but is only consumed by watch mode.
     """
     args = _build_parser().parse_args()
+
+    # v3: subcommand dispatch FIRST. When a subcommand was supplied, hand off
+    # to its registered action callable via args.func and exit with its return
+    # code; the v1/v2 paths below are untouched.
+    if getattr(args, "cmd", None) is not None:
+        sys.exit(args.func(args))
 
     if args.watch:
         # Lazy import keeps the one-shot path independent of watch.py at
