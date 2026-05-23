@@ -383,3 +383,70 @@ Exit codes for `history NAME`:
 |------|---------|
 | `0`  | Archive directory exists and was rendered (even if some artefacts are missing inside it). |
 | `1`  | Archive directory does not exist. |
+
+#### `restore` — copy an archived snapshot back into live state
+
+`pipeline-status restore NAME [--force]` is the read-write counterpart of
+`archive`: it copies the canonical artefact files from
+`.claude/state/archive/<slug>/` (where `<slug>` is `slugify(NAME)`, using the
+same slugifier as `archive`) back into `.claude/state/`. Whatever subset of
+the tracked artefacts is present in the archive directory is what gets
+restored. `restore` is **additive**: it never removes or modifies live files
+that are not present in the archive — any such file is left untouched
+byte-for-byte.
+
+By default, `restore` performs an **all-or-nothing collision check** before
+copying anything. It enumerates the tracked artefacts present in the
+archive, builds the full list of basenames whose live counterpart already
+exists under `.claude/state/`, and — if that list is non-empty — refuses
+the entire operation, prints the complete conflict list to stderr, and
+exits 1 **without copying any file** (including non-conflicting ones).
+
+Passing `--force` is a coarse permission grant ("yes, I accept
+overwrites"). With `--force`, existing live **files** are overwritten by
+their archived counterpart. `--force` never overwrites a live **directory**
+sitting at a target path — if any tracked target under `.claude/state/` is
+a real directory (e.g. someone manually `mkdir`'d `.claude/state/tasks.json/`),
+`restore --force` aborts with a directory-overwrite error and exit code 1
+before any file is copied. `--force` likewise never deletes live files that
+are absent from the archive.
+
+The `--watch` and `--interval` flags are **not** accepted on the `restore`
+subcommand — they live on the top-level parser and apply only to the
+no-subcommand path. Combining either with `restore` is rejected by argparse
+with exit code 2 and a usage error to stderr.
+
+```bash
+# Safe restore — refuses if any live target already exists,
+# listing every conflicting basename:
+pipeline-status restore foo
+
+# Roll the live state back to a snapshot, overwriting any
+# existing live files (but never live directories, and
+# never deleting live files absent from the archive):
+pipeline-status restore foo --force
+```
+
+On success `restore` prints a single confirmation line to stdout and
+exits 0:
+
+```
+Restored 5 file(s) from .claude/state/archive/foo/
+```
+
+If any live target would be overwritten and `--force` was not passed,
+`restore` prints the full conflict list to stderr and exits 1 without
+copying anything:
+
+```
+pipeline-status: error: refusing to overwrite existing file(s): requirements.md, adr.md, tasks.json
+(use --force to overwrite)
+```
+
+Exit codes for `restore`:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Restore succeeded (`N` may be `0` if the archive directory is empty); printed as `Restored N file(s) from .claude/state/archive/<slug>/`. |
+| `1`  | Archive directory not found, `NAME` slugifies to the empty string, one or more live targets would be overwritten and `--force` was not passed, or `--force` was passed but a live target at a tracked path is a directory. |
+| `2`  | `.claude/state/` is missing or is not a directory. |
