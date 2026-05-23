@@ -1,0 +1,166 @@
+{
+  "feature": "pipeline-status archive & history subcommands (v3)",
+  "dispatch_strategy": "Wave 1 (parallel): task-001, task-002, task-003, task-005. Wave 2 (after Wave 1 merges): task-004.",
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Implement archive subcommand module (pipeline_status/archive.py)",
+      "type": "backend",
+      "description": "Build pipeline_status/archive.py providing the slugifier, default-name derivation, and the archive subcommand action callable. This is Task A in the v3 parallel-fan-out per the ADR's File ownership table. Owns pipeline_status/archive.py plus tests/test_archive.py. Imports stdlib only; no sibling-task imports. Exposes TRACKED_ARTEFACTS, slugify, derive_default_name, run_archive, and add_archive_subparser exactly as documented in the ADR's API Contracts.",
+      "acceptance_criteria": [
+        "Module exports TRACKED_ARTEFACTS: Final[tuple[str, ...]] with the five basenames in copy order: feature-request.md, requirements.md, adr.md, tasks.json, worktrees.json.",
+        "slugify(text: str) -> str lowercases, replaces runs of [^a-z0-9]+ with -, strips leading/trailing -, returns '' if empty; ASCII-only output by construction (Decision 10, FR-11).",
+        "slugify is path-traversal safe: slugify('../../etc/passwd') produces 'etc-passwd' and no /, \\, or .. can appear in output.",
+        "derive_default_name(feature_request_path, *, today=None) -> str reads the first ATX-style markdown heading, slugifies it, returns it when non-empty; otherwise returns today.strftime('%Y-%m-%d') with today defaulting to datetime.now().astimezone() (FR-9, FR-10).",
+        "derive_default_name never raises; missing file, unreadable file, no heading, or empty slug all fall through to the date fallback.",
+        "run_archive(args: argparse.Namespace) -> int returns 2 with stderr message when .claude/state/ is missing or not a directory (FR-16, FR-35).",
+        "run_archive returns 1 with stderr message when args.name is provided but slugifies to empty (FR-12, FR-35).",
+        "run_archive returns 1 with stderr message 'pipeline-status: error: archive <slug> already exists at <dest>' on FileExistsError from dest.mkdir(parents=True, exist_ok=False); no partial files written (FR-7, Decision 3, Decision 8).",
+        "run_archive creates dest_root via mkdir(parents=True, exist_ok=True) before creating dest via mkdir(parents=True, exist_ok=False).",
+        "run_archive copies each existing file in TRACKED_ARTEFACTS from state_dir to dest using shutil.copy2; missing source files are silently skipped (FR-6, FR-8, Decision 4).",
+        "run_archive calls os.utime(dest, (now, now)) with now = time.time() after the last copy (Decision 5).",
+        "run_archive prints exactly 'Archived <N> file(s) to .claude/state/archive/<slug>/' to stdout on success and returns 0; N may be 0..5 (FR-13, FR-14).",
+        "run_archive never modifies, renames, or deletes any source file under .claude/state/ (FR-15).",
+        "add_archive_subparser(subparsers) -> argparse.ArgumentParser registers the archive subcommand with one optional --name NAME flag whose help text documents the slugifier normalisation rules (FR-12); calls sp.set_defaults(func=run_archive).",
+        "tests/test_archive.py uses stdlib unittest + tempfile.TemporaryDirectory only; no subprocess, network, or real .claude/state/ access.",
+        "Tests cover: slugifier (empty, whitespace, mixed case, unicode naive -> na-ve, path traversal, all-separator input, backticks/brackets), derive_default_name heading extraction and date fallback (with injected today), run_archive happy path 5/5, partial source 3/5, missing state dir (exit 2), existing destination (exit 1 with no partial write), empty/invalid name (exit 1, no writes), N=0 still creates the directory and exits 0.",
+        "No imports of pipeline_status.history or pipeline_status.format_history."
+      ],
+      "dependencies": [],
+      "estimated_hours": 6,
+      "adr_sections": [
+        "Decision 2: Slugifier ownership",
+        "Decision 3: Archive overwrite policy",
+        "Decision 4: File-copy primitive",
+        "Decision 5: Archive directory mtime stamping",
+        "Decision 8: Archive collision UX",
+        "Decision 10: Slugifier rules",
+        "API Contracts - Task A - pipeline_status/archive.py",
+        "Implementation Notes - pipeline_status/archive.py"
+      ],
+      "jira_key": "KAN-17"
+    },
+    {
+      "id": "task-002",
+      "title": "Implement history discovery module (pipeline_status/history.py)",
+      "type": "backend",
+      "description": "Build pipeline_status/history.py providing archive enumeration, per-archive inspection, and the history subcommand action callable. This is Task B in the v3 parallel-fan-out per the ADR's File ownership table. Owns pipeline_status/history.py plus tests/test_history.py. Imports stdlib + master pipeline_status.inspectors; does NOT import archive.py or format_history.py eagerly (the only cross-task references in run_history are lazy imports inside the function body, so Task B's tests target list_archives and inspect_archive directly with Path inputs).",
+      "acceptance_criteria": [
+        "Module exports ArchiveEntry frozen dataclass with fields name: str, path: Path, mtime: float, total_tasks: int | None, completed_tasks: int | None.",
+        "Module defines a private _TRACKED_ARTEFACTS tuple of the five basenames in the same order as archive.TRACKED_ARTEFACTS; do NOT import the tuple from archive.py (parallel-safety per Decision 12).",
+        "list_archives(archive_root: Path) -> list[ArchiveEntry] returns [] when archive_root does not exist or is not a directory (FR-24).",
+        "list_archives iterates archive_root.iterdir(), includes only entries where child.is_dir() is true (symlinks to directories included per Decision 7), and ignores plain files (FR-17, FR-23).",
+        "list_archives reads each child's mtime from child.stat().st_mtime (FR-19).",
+        "list_archives parses each <archive>/tasks.json reading at most MAX_READ_BYTES bytes; accepts top-level list shape or {'tasks': [...]} shape; counts completed via v1 rules (status in {'done','completed'} case-insensitive OR boolean completed/done truthy) (FR-20, FR-21).",
+        "list_archives returns total_tasks=None, completed_tasks=None when tasks.json is missing, unreadable, malformed JSON, or has a shape that is neither list nor {'tasks': [...]} (FR-22).",
+        "list_archives returns total_tasks=0, completed_tasks=0 for empty {} or [] JSON values.",
+        "list_archives never raises; catches OSError, UnicodeDecodeError, json.JSONDecodeError.",
+        "list_archives sorts the returned list by entry.name ascending using Python's default byte-order key (FR-23).",
+        "inspect_archive(archive_dir: Path) -> dict[str, ArtefactResult] returns a dict with the five canonical keys mapped to the result of the corresponding v1 inspector (inspect_feature_request, inspect_requirements, inspect_adr, inspect_tasks, inspect_worktrees) rooted at archive_dir; signatures of existing inspectors are untouched (FR-32).",
+        "inspect_archive does not raise on partial archives; missing files render per v1 filled-detection rules.",
+        "add_history_subparser(subparsers) registers the history subcommand with one optional positional name (nargs='?', default None) and no other flags; calls sp.set_defaults(func=run_history).",
+        "run_history(args) (table form, args.name is None): calls list_archives against Path.cwd()/.claude/state/archive; if empty prints exactly 'No archives found.' and returns 0; otherwise lazy-imports format_history.format_history_table and prints the result with end='' and returns 0 (FR-17, FR-24, FR-25).",
+        "run_history(args) (detail form, args.name set): lazy-imports archive.slugify, resolves archive_dir = Path.cwd()/.claude/state/archive/<slug>; if not a directory writes stderr 'pipeline-status: error: archive <name> not found at <path>' and returns 1; otherwise lazy-imports format_history.format_archive_detail and stage.derive_stage, calls inspect_archive, prints the rendered detail with end='' and returns 0 (FR-26, FR-27, FR-28, FR-30).",
+        "tests/test_history.py uses stdlib unittest + tempfile.TemporaryDirectory only; covers list_archives against empty/missing root, multiple sorted archives, missing/malformed tasks.json, and inspect_archive against partial archives. Tests target list_archives and inspect_archive directly with Path arguments and do NOT eagerly import pipeline_status.archive or pipeline_status.format_history."
+      ],
+      "dependencies": [],
+      "estimated_hours": 5,
+      "adr_sections": [
+        "Decision 7: history and symlinked archive directories",
+        "Decision 11: history sort order",
+        "Decision 12: How to keep tests parallel-safe",
+        "Data Model - ArchiveEntry",
+        "API Contracts - Task B - pipeline_status/history.py",
+        "Implementation Notes - pipeline_status/history.py",
+        "Sequence Diagrams - history table happy path"
+      ],
+      "jira_key": "KAN-18"
+    },
+    {
+      "id": "task-003",
+      "title": "Implement history renderers module (pipeline_status/format_history.py)",
+      "type": "backend",
+      "description": "Build pipeline_status/format_history.py providing the table renderer and the per-archive detail renderer used by the history subcommand. This is Task C in the v3 parallel-fan-out per the ADR's File ownership table. Owns pipeline_status/format_history.py plus tests/test_format_history.py. Imports stdlib + pipeline_status.inspectors.ArtefactResult + pipeline_status.formatting (format_artefact_row, format_stage_line); does NOT import archive.py or history.py at runtime (ArchiveEntry is referenced only under TYPE_CHECKING).",
+      "acceptance_criteria": [
+        "format_history_table(entries: Sequence[ArchiveEntry]) -> str returns a multi-line string ending in \\n (FR-18).",
+        "Table columns appear in order NAME, ARCHIVED-AT, TASKS, DONE; one header row precedes the data rows; columns are separated by at least two spaces with no tabs and no Unicode box-drawing characters (FR-18, Decision 6).",
+        "Column widths size to the widest value in each column (including the header).",
+        "ARCHIVED-AT cell is datetime.fromtimestamp(entry.mtime, tz=datetime.now().astimezone().tzinfo).isoformat(timespec='seconds') matching v1's mtime formatting one-liner; do NOT import the private inspectors._mtime_iso helper (FR-19).",
+        "TASKS cell is str(entry.total_tasks) when total_tasks is not None, else literal '-'.",
+        "DONE cell is str(entry.completed_tasks) when completed_tasks is not None, else literal '-' (FR-22).",
+        "Rows are emitted in the order they appear in entries (caller is responsible for sorting; renderer does not re-sort).",
+        "Renderer accepts any object exposing .name, .mtime, .total_tasks, .completed_tasks attributes (structural protocol); ArchiveEntry import is TYPE_CHECKING only to avoid runtime circular dependency with history.py.",
+        "No ANSI colour is emitted by format_history_table (table is metadata, not a status report).",
+        "format_archive_detail(results: Sequence[ArtefactResult], stage: str) -> str returns a multi-line string ending in \\n whose body is byte-identical to the v1 _run_one_shot() body for identical artefacts: header 'Pipeline Status\\n', then '===============\\n', then '\\n', then for each result '  ' + format_artefact_row(result) + '\\n', then '\\n', then '  ' + format_stage_line(stage) + '\\n' (FR-28).",
+        "format_archive_detail uses format_artefact_row and format_stage_line from pipeline_status.formatting; does NOT call format_report (FR-33, Decision 13).",
+        "Colour behaviour follows the existing pipeline_status.formatting.use_colour() helper; no separate colour flag is taken by the renderer (FR-34).",
+        "tests/test_format_history.py uses stdlib unittest only; constructs fixture inputs as ad-hoc objects (e.g. types.SimpleNamespace or local dataclasses) and ArtefactResult instances without importing pipeline_status.history or pipeline_status.archive.",
+        "Tests cover: empty entries list, single-archive table, multi-archive table with width sizing, None counts rendered as '-', detail renderer byte-identical to v1 layout, detail renderer with partial archive (some ArtefactResult entries marked missing/empty)."
+      ],
+      "dependencies": [],
+      "estimated_hours": 4,
+      "adr_sections": [
+        "Decision 6: history table column set",
+        "API Contracts - Task C - pipeline_status/format_history.py",
+        "Implementation Notes - pipeline_status/format_history.py"
+      ],
+      "jira_key": "KAN-19"
+    },
+    {
+      "id": "task-004",
+      "title": "Wire archive/history subcommands into CLI (pipeline_status/__main__.py)",
+      "type": "backend",
+      "description": "Edit pipeline_status/__main__.py to add subparser wiring and dispatch for the new archive and history subcommands while keeping the v1 one-shot and v2 watch paths byte-identical. This is Task D in the v3 parallel-fan-out and depends on Tasks A, B, C because it imports their registration helpers. Owns pipeline_status/__main__.py plus tests/test_main_subcommands.py. The diff is additive and minimal per Decision 13.",
+      "acceptance_criteria": [
+        "_build_parser() adds subparsers = parser.add_subparsers(dest='cmd', required=False), then calls add_archive_subparser(subparsers) and add_history_subparser(subparsers) imported from pipeline_status.archive and pipeline_status.history respectively (Decision 1, Decision 13).",
+        "Top-level --watch and --interval options remain declared on the root parser unchanged.",
+        "main() dispatches subcommands BEFORE the watch/one-shot branches: when getattr(args, 'cmd', None) is not None, calls sys.exit(args.func(args)) (Decision 13).",
+        "When args.cmd is None, the v1/v2 dispatch is unchanged: --watch lazy-imports WatchConfig/run_watch from pipeline_status.watch and exits with run_watch(config); otherwise exits with _run_one_shot().",
+        "_interval_type, _locate_state_dir, _run_one_shot, the _EPILOG string, and the module docstring are unchanged byte-for-byte.",
+        "pipeline-status with no arguments produces byte-identical stdout to v1/v2 for any given filesystem state (FR-2, NFR backwards compatibility).",
+        "pipeline-status --watch and pipeline-status --watch --interval N behave byte-identically to v2 (FR-2).",
+        "pipeline-status --help lists {archive,history} in the usage line and retains all existing flags and exit-code documentation (FR-4).",
+        "pipeline-status --watch archive and pipeline-status --watch history produce an argparse error to stderr with exit 2 (FR-3, naturally enforced by subparsers not declaring --watch).",
+        "pipeline-status frobnicate (unknown subcommand) produces an argparse error to stderr with exit 2 (FR-1).",
+        "pipeline-status archive [--name N] invokes archive.run_archive via args.func; pipeline-status history [NAME] invokes history.run_history via args.func.",
+        "tests/test_main_subcommands.py uses stdlib unittest + tempfile.TemporaryDirectory + unittest.mock only; runs end-to-end via _build_parser().parse_args([...]) and then args.func(args), with os.chdir saved/restored via addCleanup.",
+        "Tests cover: subcommand dispatch (archive, history, history NAME), --watch combined with a subcommand is rejected (SystemExit code 2), unknown subcommand rejected, byte-identical regression for pipeline-status (no args) and pipeline-status --watch against captured v2 stdout, and the existing test suite still passes unchanged.",
+        "Full python -m unittest discover -s tests completes in under 5 s on a modern laptop (NFR)."
+      ],
+      "dependencies": ["task-001", "task-002", "task-003"],
+      "estimated_hours": 4,
+      "adr_sections": [
+        "Decision 1: Subcommand wiring strategy in __main__.py",
+        "Decision 13: How __main__.py's lazy imports work",
+        "API Contracts - Task D - pipeline_status/__main__.py",
+        "Implementation Notes - pipeline_status/__main__.py",
+        "CLI Surface",
+        "Exit-code matrix (FR-35)"
+      ],
+      "jira_key": "KAN-20"
+    },
+    {
+      "id": "task-005",
+      "title": "Document archive and history subcommands in README.md",
+      "type": "test",
+      "description": "Update README.md to document the new v3 archive and history subcommands. This is Task E in the v3 parallel-fan-out per the ADR's File ownership table; it owns README.md only and runs in full parallel with all other tasks. No code changes; no test changes. Note: the 'test' type label here is the closest fit from the available task-type vocabulary for a documentation-only change.",
+      "acceptance_criteria": [
+        "README contains a CLI section (new or extended) that documents the v3 subcommands without removing or renaming any existing content.",
+        "archive subcommand is documented with: one-paragraph description, the --name NAME flag (including the slugifier normalisation rules from FR-11/Decision 10), at least one example invocation, and a line per exit code (0 success, 2 missing .claude/state/, 1 existing destination or invalid name).",
+        "history (table form) is documented with: one-paragraph description, an example invocation, and exit code 0 (including the no-archives case which prints 'No archives found.').",
+        "history NAME (detail form) is documented with: one-paragraph description noting that NAME is passed through the same slugifier as archive --name, an example invocation, and exit codes 0 (archive exists, even if partial) and 1 (archive missing).",
+        "Existing sections describing the v1 one-shot mode and v2 --watch [--interval N] mode remain intact.",
+        "Documentation reflects that the new subcommands do not accept --watch or --interval and that pipeline-status --help now lists {archive,history} in the usage line.",
+        "No code files are modified; no tests are added or removed."
+      ],
+      "dependencies": [],
+      "estimated_hours": 1,
+      "adr_sections": [
+        "Architecture - File ownership table - Task E",
+        "Implementation Notes - README.md",
+        "CLI Surface"
+      ],
+      "jira_key": "KAN-21"
+    }
+  ]
+}
