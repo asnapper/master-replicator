@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pipeline-status"
+version = "0.1.0"
+description = "Inspect .claude/state/ pipeline artefacts and report current stage"
+requires-python = ">=3.10"
+
+[project.scripts]
+pipeline-status = "pipeline_status.__main__:main"
