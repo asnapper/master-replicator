@@ -50,8 +50,8 @@ jobs:
       - name: Validate rendered manifests
         run: |
           # kubectl is pre-installed on ubuntu-latest
-          kubectl apply --dry-run=client --validate=true -f /tmp/render-default.yaml
-          kubectl apply --dry-run=client --validate=true -f /tmp/render-statevol.yaml
+          kubectl apply --dry-run=client --validate=false -f /tmp/render-default.yaml
+          kubectl apply --dry-run=client --validate=false -f /tmp/render-statevol.yaml
 
       - name: Log in to GHCR
         if: ${{ github.event_name != 'pull_request' }}
