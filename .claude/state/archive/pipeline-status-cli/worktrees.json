@@ -1,0 +1,10 @@
+[
+  {"task_id": "task-001", "branch": "feature/task-001", "path": "/home/matt/src/project-task-001", "jira_key": "KAN-4", "status": "in_progress"},
+  {"task_id": "task-002", "branch": "feature/task-002", "path": "/home/matt/src/project-task-002", "jira_key": "KAN-5", "status": "in_progress"},
+  {"task_id": "task-003", "branch": "feature/task-003", "path": "/home/matt/src/project-task-003", "jira_key": "KAN-6", "status": "in_progress"},
+  {"task_id": "task-004", "branch": "feature/task-004", "path": "/home/matt/src/project-task-004", "jira_key": "KAN-7", "status": "in_progress"},
+  {"task_id": "task-005", "branch": "feature/task-005", "path": "/home/matt/src/project-task-005", "jira_key": "KAN-8", "status": "in_progress"},
+  {"task_id": "task-006", "branch": "feature/task-006", "path": "/home/matt/src/project-task-006", "jira_key": "KAN-9", "status": "in_progress"},
+  {"task_id": "task-007", "branch": "feature/task-007", "path": "/home/matt/src/project-task-007", "jira_key": "KAN-10", "status": "in_progress"},
+  {"task_id": "task-008", "branch": "feature/task-008", "path": "/home/matt/src/project-task-008", "jira_key": "KAN-11", "status": "in_progress"}
+]
