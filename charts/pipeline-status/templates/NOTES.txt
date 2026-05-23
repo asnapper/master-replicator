@@ -1,0 +1,26 @@
+Helm release {{ .Release.Name }} of chart {{ .Chart.Name }} v{{ .Chart.Version }} installed.
+
+CronJob: {{ include "pipeline-status.fullname" . }}
+  Schedule:  {{ .Values.cronjob.schedule }}
+  Args:      {{ join " " .Values.cronjob.args }}
+  Image:     {{ include "pipeline-status.image" . }}
+
+{{- if not .Values.stateVolume.enabled }}
+
+WARNING: stateVolume is disabled. The CronJob will exit 2 on every run until
+you set:
+
+    --set stateVolume.enabled=true \
+    --set stateVolume.claimName=<your-pvc>
+
+Or supply a values file with both keys.
+{{- else }}
+
+State volume mounted at {{ .Values.stateVolume.mountPath }} from PVC {{ .Values.stateVolume.claimName | quote }}.
+{{- end }}
+
+To watch CronJob runs:
+
+    kubectl -n {{ .Release.Namespace }} get cronjob {{ include "pipeline-status.fullname" . }}
+    kubectl -n {{ .Release.Namespace }} get jobs --selector app.kubernetes.io/instance={{ .Release.Name }}
+    kubectl -n {{ .Release.Namespace }} logs --selector app.kubernetes.io/instance={{ .Release.Name }} --tail=200
