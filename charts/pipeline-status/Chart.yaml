@@ -1,0 +1,22 @@
+apiVersion: v2
+name: pipeline-status
+description: A Helm chart that runs the pipeline-status CLI as a Kubernetes CronJob
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.26-0"
+home: https://github.com/asnapper/master-replicator
+sources:
+  - https://github.com/asnapper/master-replicator
+maintainers:
+  - name: master-replicator maintainers
+    url: https://github.com/asnapper/master-replicator
+icon: ""
+keywords:
+  - pipeline
+  - status
+  - cli
+  - cronjob
+  - master-replicator
+annotations:
+  category: DeveloperTools

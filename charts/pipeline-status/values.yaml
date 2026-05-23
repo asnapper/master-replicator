@@ -1,0 +1,77 @@
+# Image to deploy. The default repository is the Docker image published by the
+# sibling Docker pipeline; tag "" resolves to .Chart.AppVersion (currently
+# "0.1.0") so installs are reproducible without :latest.
+image:
+  registry: ghcr.io
+  repository: asnapper/master-replicator
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ServiceAccount creation toggle.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# CronJob behaviour.
+cronjob:
+  schedule: "*/5 * * * *"
+  args:
+    - history
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  backoffLimit: 0
+  restartPolicy: OnFailure
+
+# State volume: the operator mounts a PVC containing .claude/state/ at the
+# chart's WORKDIR (default /repo). Disabled by default so the chart installs
+# in a "no-state" sandbox; the CronJob will exit 2 on missing state until a
+# claim is wired up.
+stateVolume:
+  enabled: false
+  mountPath: /repo
+  claimName: ""
+
+# Pod- and container-level security context. UID/GID 65532 matches the Docker
+# image's non-root user (cross-feature contract).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+env: []
+
+annotations: {}
+labels: {}
