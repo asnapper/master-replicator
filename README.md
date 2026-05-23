@@ -121,8 +121,73 @@ tasks.json               MISSING  EMPTY   —
 
 | Code | Meaning |
 |------|---------|
-| `0`  | All required artefacts for the current stage are present and filled |
-| `2`  | State directory is missing or inaccessible |
+| `0`  | One-shot: successful inspection. Watch mode: clean exit after Ctrl+C |
+| `2`  | One-shot: `.claude/state/` is missing or not a directory. Watch mode tolerates a missing state directory and continues looping |
+
+### Watch mode
+
+`--watch` turns `pipeline-status` into a live dashboard: the same report is re-rendered every `--interval` seconds until you press Ctrl+C. Useful while the orchestrator pipeline is actively running and you want to see gates advance without re-invoking the CLI.
+
+```bash
+# Default 2 s refresh
+pipeline-status --watch
+
+# Slower refresh (5 s)
+pipeline-status --watch --interval 5
+```
+
+The watch loop appends a footer line with the last-refresh timestamp:
+
+```
+Pipeline Status
+===============
+
+  feature-request.md   EXISTS  FILLED  2026-05-23T06:17:09+02:00
+  requirements.md      EXISTS  FILLED  2026-05-23T06:17:09+02:00
+  adr.md               EXISTS  FILLED  2026-05-23T06:17:09+02:00
+  tasks.json           EXISTS  FILLED  2026-05-23T06:17:09+02:00  (3/5 tasks done)
+  worktrees.json       EXISTS  FILLED  2026-05-23T06:31:28+02:00
+
+  Stage: Engineering in progress
+
+Last refresh: 2026-05-23T05:54:36+02:00  (interval: 2s, press Ctrl+C to stop)
+```
+
+#### `--interval SECONDS`
+
+Refresh cadence. Default `2`. Must be an integer in `[1, 3600]`. Floats (`0.5`), non-numeric strings (`abc`), and out-of-range values are rejected by argparse with exit code 2 *before* any inspector runs. Passing `--interval` *without* `--watch` is accepted and silently ignored — the one-shot stdout remains byte-identical to `pipeline-status` with no flags.
+
+#### Ctrl+C
+
+A single Ctrl+C exits cleanly with code 0. A trailing newline is emitted so the shell prompt lands on its own line.
+
+#### TTY vs. non-TTY behaviour
+
+| Stream | Inter-render behaviour |
+|---|---|
+| TTY (interactive terminal) | ANSI escape `\x1b[H\x1b[2J` clears the screen between renders |
+| Non-TTY (pipe, redirect, `tee`) | No clear-screen escape; consecutive renders are separated by exactly one blank line — clean for `grep`, `tee`, log files |
+
+#### Missing `.claude/state/` in watch mode
+
+Unlike the one-shot path (exit 2), watch mode renders a placeholder body and continues polling:
+
+```
+Pipeline Status
+===============
+
+  .claude/state/: MISSING
+
+Last refresh: 2026-05-23T05:54:36+02:00  (interval: 2s, press Ctrl+C to stop)
+```
+
+This lets you start `pipeline-status --watch` *before* the orchestrator initialises state files; the placeholder switches to the real report on the next poll once the directory appears.
+
+#### Cross-platform notes
+
+- Linux, macOS, and Windows 10+ with Virtual Terminal Processing (on by default in PowerShell and Windows Terminal) all render the clear-screen escape correctly.
+- No `colorama` or other third-party Windows-ANSI shim is bundled or required.
+- On terminals shorter than the report, the top of the report will scroll off — accepted limitation for v2; see `--help` epilog.
 
 ### NO_COLOR Environment Variable
 
