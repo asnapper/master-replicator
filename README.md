@@ -71,3 +71,68 @@ Restart Claude Code afterwards. On the first tool call your browser will open fo
 > The `https://mcp.atlassian.com/v1/sse` endpoint is being deprecated on 30 June 2026 — use the `/v1/mcp/authv2` HTTP endpoint above.
 
 For Atlassian Server / Data Center (or if you prefer a self-hosted setup), see the community `mcp-atlassian` server, which uses an API token instead of OAuth.
+
+
+---
+
+## pipeline-status CLI
+
+The `pipeline-status` package provides a CLI command to inspect
+the current state of the multi-agent pipeline.
+
+### Installation
+
+```bash
+pip install -e .
+```
+
+### Usage
+
+Two equivalent invocation forms are supported:
+
+```bash
+# Form 1 -- module invocation
+python -m pipeline_status
+
+# Form 2 -- direct entry point (after pip install)
+pipeline-status
+```
+
+Both forms accept an optional `--state-dir` argument:
+
+```bash
+pipeline-status --state-dir /path/to/.claude/state
+```
+
+### Sample Output
+
+```
+Pipeline Status  --  stage: requirements
+------------------------------------------------------------
+feature-request.md       EXISTS   FILLED  2026-05-23T09:12:00
+requirements.md          EXISTS   FILLED  2026-05-23T09:45:31
+adr.md                   MISSING  EMPTY   —
+tasks.json               MISSING  EMPTY   —
+------------------------------------------------------------
+[Requirements     -- PO agent output]
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | All required artefacts for the current stage are present and filled |
+| `2`  | State directory is missing or inaccessible |
+
+### NO_COLOR Environment Variable
+
+| Variable | Effect |
+|----------|---------|
+| `NO_COLOR` | Set to any value (including empty string) to disable ANSI colour output |
+
+By default, colour is emitted only when stdout is an interactive TTY.
+Setting `NO_COLOR` (per the no-color.org convention) disables it unconditionally.
+
+```bash
+NO_COLOR=1 pipeline-status
+```
