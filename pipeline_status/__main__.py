@@ -34,6 +34,7 @@ from pipeline_status.inspectors import (
     inspect_tasks,
     inspect_worktrees,
 )
+from pipeline_status.restore import add_restore_subparser
 from pipeline_status.stage import derive_stage
 
 
@@ -104,6 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
     add_archive_subparser(subparsers)
     add_history_subparser(subparsers)
     add_diff_subparser(subparsers)
+    add_restore_subparser(subparsers)
     return parser
 
 
