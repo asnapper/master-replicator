@@ -201,3 +201,115 @@ Setting `NO_COLOR` (per the no-color.org convention) disables it unconditionally
 ```bash
 NO_COLOR=1 pipeline-status
 ```
+
+### Subcommands (v3)
+
+In addition to the v1 one-shot inspection and the v2 `--watch` mode (both
+documented above and unchanged), `pipeline-status` now exposes two
+subcommands for managing snapshots of past pipeline runs:
+
+```
+pipeline-status [--watch] [--interval SECONDS] {archive,history} ...
+```
+
+`pipeline-status --help` now lists `{archive,history}` in the usage line.
+Neither new subcommand accepts `--watch` or `--interval` — those flags live
+on the top-level parser and apply only to the no-subcommand path. Combining
+either flag with a subcommand is rejected by argparse with exit code 2 and a
+usage error to stderr.
+
+#### `archive` — snapshot the live state directory
+
+Copies the current `.claude/state/` artefacts (`feature-request.md`,
+`requirements.md`, `adr.md`, `tasks.json`, `worktrees.json`) into a fresh
+subdirectory under `.claude/state/archive/<NAME>/`. Whatever subset of those
+files happens to exist is copied; nothing is removed from the source state
+directory. On completion `archive` prints a confirmation line of the form
+`Archived 5 file(s) to .claude/state/archive/<NAME>/` and exits 0.
+
+```bash
+# Default name: derived from the first markdown heading of feature-request.md,
+# slugified; falls back to today's local date (YYYY-MM-DD) if no heading.
+pipeline-status archive
+
+# Explicit name; the value is passed through the slugifier described below.
+pipeline-status archive --name "My Feature!"
+# -> writes .claude/state/archive/my-feature/
+```
+
+**`--name NAME`** — optional. The supplied value is normalised by the
+built-in slugifier before being used as the archive directory name. The
+slugifier rules are:
+
+1. Lowercase the input.
+2. Replace every run of characters outside `[a-z0-9]` with a single `-`.
+3. Strip leading and trailing `-`.
+4. If the result is the empty string, the name is rejected (exit 1).
+
+Examples: `slugify("My Feature!")` → `my-feature`;
+`slugify("  Foo / Bar  ")` → `foo-bar`;
+`slugify("naïve")` → `na-ve` (non-ASCII letters become separators, they are
+not transliterated); `slugify("!!!")` → `""` (rejected).
+Output is restricted to `[a-z0-9-]` by construction, so `/`, `\`, and `..`
+cannot appear in slugs.
+
+Exit codes for `archive`:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Snapshot written successfully. |
+| `2`  | `.claude/state/` is missing or not a directory. |
+| `1`  | Destination archive directory already exists, or `--name` slugifies to the empty string. |
+
+#### `history` — list past archives (table form)
+
+Without arguments, `history` enumerates the immediate subdirectories of
+`.claude/state/archive/` and prints a four-column table (`NAME`,
+`ARCHIVED-AT`, `TASKS`, `DONE`) sorted alphabetically by name. `TASKS` and
+`DONE` are read from each archive's `tasks.json`; if that file is missing or
+malformed, both cells render as `-`. Columns are separated by two-space
+gutters.
+
+```bash
+pipeline-status history
+```
+
+Example output:
+
+```
+NAME              ARCHIVED-AT                TASKS  DONE
+pipeline-status   2026-05-20T14:32:01+02:00  3      3
+watch-mode        2026-05-22T09:15:00+02:00  4      2
+```
+
+If the archive root is missing or contains no archive subdirectories,
+`history` prints `No archives found.` and exits 0.
+
+Exit codes for `history` (table form):
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Table rendered (including the no-archives case which prints `No archives found.`). |
+
+#### `history NAME` — render one archived run (detail form)
+
+When a positional `NAME` is supplied, `history` resolves it to
+`.claude/state/archive/<slug>/` (passing `NAME` through the same slugifier
+described above) and renders the archive using the same layout as the v1
+one-shot report — header `Pipeline Status`, one row per artefact, and a
+trailing stage line. Partial archives are accepted: any missing artefacts
+render with their v1 `MISSING` / unfilled markers and the report still
+exits 0.
+
+```bash
+# Mixed-case input is normalised by the slugifier:
+pipeline-status history Watch-Mode
+# -> reads .claude/state/archive/watch-mode/
+```
+
+Exit codes for `history NAME`:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Archive directory exists and was rendered (even if some artefacts are missing inside it). |
+| `1`  | Archive directory does not exist. |
