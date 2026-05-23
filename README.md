@@ -512,3 +512,38 @@ docker run --rm \
 (Or `chmod a+rwx` your `.claude/state/`.)
 
 <!-- END: docker-section (Feature A) -->
+
+<!-- BEGIN: helm-section (Feature B) -->
+
+## Kubernetes (Helm)
+
+`pipeline-status` ships as a Helm chart that schedules the CLI as a Kubernetes `CronJob`. The chart is published as an OCI artifact at [`oci://ghcr.io/asnapper/charts/pipeline-status`](https://github.com/asnapper/master-replicator/pkgs/container/charts%2Fpipeline-status) alongside the Docker image. See [`charts/pipeline-status/README.md`](charts/pipeline-status/README.md) for the full values reference and worked examples.
+
+### What the chart deploys
+
+- A `CronJob` running the `pipeline-status` CLI on a configurable schedule (default `*/5 * * * *` — every 5 minutes).
+- An optional `ServiceAccount` (created when `serviceAccount.create=true`, which is the default).
+- No `PersistentVolumeClaim`: the chart binds to an operator-owned PVC by name when `stateVolume.enabled=true`. The CronJob exits `2` until a PVC is wired up.
+
+### Install
+
+```bash
+helm install ps oci://ghcr.io/asnapper/charts/pipeline-status --version 0.1.0
+```
+
+Production install with a pre-created state PVC:
+
+```bash
+helm install ps oci://ghcr.io/asnapper/charts/pipeline-status \
+    --version 0.1.0 \
+    --set stateVolume.enabled=true \
+    --set stateVolume.claimName=pipeline-state
+```
+
+### Cross-feature UID/GID contract
+
+The chart's pod- and container-level `securityContext` pin `runAsUser` and `runAsGroup` to `65532` to match the non-root user baked into the Feature A Docker image (`pipeline:pipeline`, UID/GID `65532:65532`). The two defaults are coupled: if the Docker image ever changes its non-root UID, the chart's defaults bump in lockstep via a follow-up PR.
+
+See [`charts/pipeline-status/README.md`](charts/pipeline-status/README.md) for the complete values reference, more examples, and `helm uninstall` instructions.
+
+<!-- END: helm-section (Feature B) -->
