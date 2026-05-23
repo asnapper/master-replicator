@@ -1,35 +1,33 @@
 # Feature Request
 
 ## Feature
-Add a `--watch` mode to the existing `pipeline-status` CLI so a developer (or returning Claude Code session) can leave a terminal window open and see the pipeline state refresh automatically while the orchestrator pipeline progresses.
+Add two new subcommands to the existing `pipeline-status` CLI for **time-travel over past pipeline runs**:
 
-When `--watch` is passed, the tool MUST:
-- Re-render the same status report it currently prints, every N seconds (default 2 seconds).
-- Clear the previous render before each new one so the screen does not scroll.
-- Append a small footer line under the report, e.g. `Last refresh: 2026-05-23T05:54:36+02:00  (interval: 2s, press Ctrl+C to stop)`.
-- Exit 0 cleanly on SIGINT (Ctrl+C), printing a final newline so the shell prompt is on its own line.
-- Continue running across transient changes in `.claude/state/` — i.e. a missing state dir should NOT cause `--watch` to exit (only the one-shot mode does that).
+- `pipeline-status archive [--name NAME]` — snapshot the current `.claude/state/*` files into `.claude/state/archive/<NAME>/`. If `--name` is omitted, derive a name from `feature-request.md`'s first heading (slugified), falling back to the current ISO date.
+- `pipeline-status history` — list all archived runs as a table (one row per archive) with name, archived-at timestamp (mtime), task count and how many tasks were marked complete in that archive.
+- `pipeline-status history NAME` — show the same per-artefact rows that one-shot prints, but reading from `.claude/state/archive/<NAME>/` instead of the live state.
 
-Add a `--interval SECONDS` flag to control the refresh cadence (default 2; minimum 1; maximum 3600). Negative or non-integer values must be rejected by argparse with a clear error.
+This lets a developer (or returning Claude Code session) see the project's history at a glance instead of digging through `.claude/state/archive/` by hand.
 
 ## Context
-The base `pipeline-status` CLI delivered in the first pipeline run is a one-shot inspector — you run it, you read the output, you forget about it. During an active multi-agent pipeline run (when state files are being written and worktrees are being created in real time), a static one-shot view goes stale almost immediately. A `--watch` mode is the smallest possible feature that turns the existing CLI into a live "dashboard" without inventing a TUI, daemon, or any HTTP surface.
+v1 delivered the one-shot inspector. v2 added `--watch` for live monitoring. Both are concerned only with the **current** pipeline run. As the orchestrator now runs multiple feature deliveries through the same repo, the `.claude/state/archive/` directory is starting to accumulate snapshots (one per past feature: `pipeline-status-cli/`, `watch-mode/`, soon `archive-history/` itself). The orchestrator manually moves state files into `archive/` between runs — this feature replaces that manual step with a proper subcommand AND gives a read-side view of what's in there.
 
-This feature also pairs naturally with the new pattern of orchestrators running long fan-outs of engineer subagents: the human reviewer can leave `pipeline-status --watch` open in one pane and watch tasks tick through to completion while reviewing PRs in another.
+Why this is the right next feature: it sets up the **subcommand infrastructure** that future iterations will reuse (e.g., `--json` output, `lint`, `diff`), turns a manual workflow step into a primitive, and is genuinely useful for retrospectives ("how many features have we shipped through this pipeline so far?").
 
 ## Constraints
-- **Stdlib only.** No new pip dependencies. `time.sleep`, `signal`, and ANSI escape sequences are sufficient. No `curses`, no `rich`, no `watchdog`.
-- **Existing one-shot behaviour MUST NOT change.** Running `pipeline-status` without `--watch` must produce byte-identical output to the previous release.
-- **No file watching / inotify.** Polling is explicitly the chosen mechanism — it works cross-platform, has zero dependencies, and the refresh interval is small enough that latency is acceptable.
-- **TTY-only by default.** If stdout is not a TTY and `--watch` is passed, argparse should accept it but the screen-clear sequences must be suppressed (the report just prints repeatedly, separated by a blank line). This keeps pipe/log usage sane.
-- **Cross-platform.** Linux, macOS, Windows 10+. Use the standard ANSI clear-screen escape (`\x1b[H\x1b[2J`); modern Windows terminals support it.
-- **No new external state.** `--watch` does not write any file; it does not create lockfiles, PID files, or log files.
-- **Tests:** stdlib `unittest` only, no live process spawning. The watch loop must be factored so the iteration body and the sleep/loop control are testable independently (inject the sleep/clock for unit tests).
-- **Backwards compatible.** All existing tests (`tests/test_inspectors.py`, `tests/test_stage.py`, `tests/test_formatting.py`) MUST continue to pass unchanged.
+- **Stdlib only** (per v1/v2 ADRs). `json`, `pathlib`, `datetime`, `argparse`. No `tomllib` use for the slugifier — keep it a tiny inline function.
+- **Existing CLI surface MUST NOT regress.** `pipeline-status` (no args) and `pipeline-status --watch` continue to behave byte-identically. The new subcommands sit alongside them. Implementation hint: `argparse` allows mixing a top-level optional flag (`--watch`) with subcommands by making the subcommand argument optional and treating its absence as the "implicit status" command.
+- **Archive layout** is a flat directory: `.claude/state/archive/<NAME>/{feature-request.md,requirements.md,adr.md,tasks.json,worktrees.json}`. The `archive` subcommand copies the live files into that directory; it does NOT remove them from `.claude/state/`. (Removal is the orchestrator's job between runs.)
+- **Archive identity** is the directory name. Names are slugs (lowercase, dashes, no spaces); the slugifier rejects empty input. If the target directory exists, `archive` fails with a clear stderr error and exit 1 (do not overwrite by default).
+- **History reads must tolerate partial archives.** An archive missing `tasks.json` should not crash `history`; it just shows blank counts.
+- **Performance**: `history` must scan a directory of up to 100 archives in under 200 ms.
+- **No new files written outside the archive directory.** No PID files, lockfiles, or caches.
+- **Tests use stdlib `unittest`** + `tempfile.TemporaryDirectory`. No subprocess use. No real network access.
 
 ## Out of Scope
-- No file-system event watching (inotify / FSEvents / ReadDirectoryChangesW).
-- No `--json` machine-readable output mode (still deferred from the v1 ADR).
-- No interactive TUI, no scrolling history, no keyboard shortcuts beyond Ctrl+C.
-- No daemon mode, systemd unit, or background process management.
-- No remote / multi-repo state inspection.
+- Restoring an archive back into live state (no `pipeline-status restore`). Archives are read-only history.
+- Diff between two archives (no `pipeline-status diff A B`).
+- JSON / machine-readable output mode (still deferred from v1).
+- Automatic archiving at end of run (the orchestrator continues to drive when archiving happens).
+- Compression, encryption, or external sync of archives.
+- Search / filter flags on `history` (defer to grep / awk for v3).
