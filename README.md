@@ -261,6 +261,76 @@ Exit codes for `archive`:
 | `2`  | `.claude/state/` is missing or not a directory. |
 | `1`  | Destination archive directory already exists, or `--name` slugifies to the empty string. |
 
+#### `diff` — compare two pipeline runs
+
+`pipeline-status diff [--against OTHER] NAME` compares two pipeline runs
+artefact-by-artefact across the five tracked files (`feature-request.md`,
+`requirements.md`, `adr.md`, `tasks.json`, `worktrees.json`) and prints a
+per-artefact summary followed by an aggregate footer. The positional `NAME`
+is always the right-hand side and is passed through the same slugifier
+used by `archive` and `history`.
+
+`diff` operates in two modes:
+
+- **Live-vs-archive (default)** — when `--against` is omitted, the left
+  side is the live `.claude/state/` directory and the right side is the
+  archive at `.claude/state/archive/<slug(NAME)>/`. Use this to see what
+  has changed since a snapshot was taken.
+- **Archive-vs-archive (`--against OTHER`)** — when `--against` is
+  supplied, both sides are archives:
+  `.claude/state/archive/<slug(OTHER)>/` (left) and
+  `.claude/state/archive/<slug(NAME)>/` (right). Use this to compare two
+  historical snapshots without touching live state.
+
+Each tracked artefact is categorised into exactly one of four glyphs:
+
+- `+` — **added**: present on the right side, absent from the left.
+- `-` — **removed**: present on the left side, absent from the right.
+- `=` — **unchanged**: present on both sides with byte-identical content (or absent from both).
+- `M` — **modified**: present on both sides but with differing content.
+
+Artefacts absent from both sides are counted as `unchanged` in the footer
+but no row is emitted for them.
+
+```bash
+# Live state vs archive named 'foo'
+pipeline-status diff foo
+
+# Archive 'bar' (left) vs archive 'foo' (right)
+pipeline-status diff --against bar foo
+```
+
+Example output:
+
+```
+= feature-request.md
+= requirements.md
+M adr.md
++ tasks.json
+
+Diff: 1 added, 0 removed, 3 unchanged, 1 modified.
+```
+
+The footer counts always sum to exactly 5 (the number of tracked
+artefacts).
+
+Exit codes for `diff`:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Comparison completed successfully (regardless of category mix). |
+| `1`  | `NAME` (or `OTHER`) is invalid (slugifies to empty), or the resolved archive directory does not exist. |
+| `2`  | Live `.claude/state/` is missing or not a directory (only possible when `--against` is omitted). |
+
+`--watch` and `--interval` are top-level flags and are **not** accepted
+with `diff`; combining them with the subcommand is rejected by argparse
+with exit code 2.
+
+**Truncation caveat**: comparison reads at most `MAX_READ_BYTES` (10 MiB)
+from each side of every artefact. Files that differ only beyond the first
+10 MiB will compare as `=`. The 10 MiB cap is far larger than any
+realistic `.claude/state/` artefact.
+
 #### `history` — list past archives (table form)
 
 Without arguments, `history` enumerates the immediate subdirectories of
