@@ -1,0 +1,97 @@
+{
+  "feature": "B",
+  "feature_name": "Helm chart + GHCR OCI publish",
+  "version": "v5-helm",
+  "cloudId": "c39f4e77-8863-48a4-8134-1ebfcb36ad00",
+  "project_key": "KAN",
+  "waves": [
+    {
+      "wave": 1,
+      "parallel": true,
+      "task_ids": ["task-001", "task-002", "task-003"]
+    },
+    {
+      "wave": 2,
+      "parallel": false,
+      "task_ids": ["task-004"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "code": "B1",
+      "jira_key": "KAN-30",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-30",
+      "title": "[B1] Helm chart metadata + values.yaml + .helmignore",
+      "wave": 1,
+      "depends_on": [],
+      "branch": "feature/task-001",
+      "worktree": "../master-replicator-task-001",
+      "files": [
+        "charts/pipeline-status/Chart.yaml",
+        "charts/pipeline-status/values.yaml",
+        "charts/pipeline-status/.helmignore"
+      ],
+      "summary": "Chart skeleton: Chart.yaml (apiVersion v2, version 0.1.0, appVersion \"0.1.0\", kubeVersion >=1.26-0), values.yaml exposing every FR-27 key with exact ADR defaults (image, cronjob, serviceAccount, stateVolume, securityContext with UID 65532, etc.), and standard .helmignore."
+    },
+    {
+      "id": "task-002",
+      "code": "B2",
+      "jira_key": "KAN-32",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-32",
+      "title": "[B2] Helm chart templates (cronjob, serviceaccount, helpers, NOTES)",
+      "wave": 1,
+      "depends_on": [],
+      "branch": "feature/task-002",
+      "worktree": "../master-replicator-task-002",
+      "files": [
+        "charts/pipeline-status/templates/_helpers.tpl",
+        "charts/pipeline-status/templates/cronjob.yaml",
+        "charts/pipeline-status/templates/serviceaccount.yaml",
+        "charts/pipeline-status/templates/NOTES.txt"
+      ],
+      "summary": "Templates: _helpers.tpl (5 helpers), cronjob.yaml (batch/v1 CronJob with quoted image, restartPolicy OnFailure, stateVolume-gated volumes/volumeMounts, with-gated optional blocks), serviceaccount.yaml (gated by serviceAccount.create), NOTES.txt operator UX."
+    },
+    {
+      "id": "task-003",
+      "code": "B3",
+      "jira_key": "KAN-34",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-34",
+      "title": "[B3] GitHub Actions workflow: helm-publish.yml (lint + template + OCI push)",
+      "wave": 1,
+      "depends_on": [],
+      "branch": "feature/task-003",
+      "worktree": "../master-replicator-task-003",
+      "files": [
+        ".github/workflows/helm-publish.yml"
+      ],
+      "summary": "GHA workflow: triggers on push/master + chart-v* tags + PR, permissions {contents:read, packages:write}, concurrency on github.ref, steps checkout/setup-helm/lint --strict/template/kubectl dry-run, login+package+push gated to push events, --password-stdin, NO --force on helm push."
+    },
+    {
+      "id": "task-004",
+      "code": "B4",
+      "jira_key": "KAN-35",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-35",
+      "title": "[B4] Helm chart README + repo README append + stdlib-only chart tests",
+      "wave": 2,
+      "depends_on": ["task-001", "task-002"],
+      "branch": "feature/task-004",
+      "worktree": "../master-replicator-task-004",
+      "files": [
+        "charts/pipeline-status/README.md",
+        "README.md",
+        "tests/test_helm_chart.py"
+      ],
+      "summary": "Docs + tests: chart README (overview, prerequisites, 4 install examples, values table, security, uninstall, versioning), root README anchored level-2 append '## Kubernetes (Helm)', stdlib-only test file with _parse_simple_yaml + _render_simple fixture, 5 TestCases covering Chart.yaml/values.yaml/CronJob/ServiceAccount/NoForbiddenResources."
+    }
+  ],
+  "constraints": {
+    "stdlib_only_tests": true,
+    "no_pyproject_toml_changes": true,
+    "no_changes_to_pipeline_status_dir": true,
+    "no_changes_to_existing_tests": true,
+    "cross_feature_uid": 65532,
+    "cross_feature_image": "ghcr.io/asnapper/master-replicator",
+    "oci_publish_target": "oci://ghcr.io/asnapper/charts/pipeline-status"
+  }
+}

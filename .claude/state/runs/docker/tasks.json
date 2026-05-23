@@ -1,0 +1,136 @@
+{
+  "feature": "docker",
+  "feature_name": "Dockerise pipeline-status + GHCR publish workflow",
+  "generated_at": "2026-05-23",
+  "generated_by": "PM Agent (Feature A — Docker)",
+  "sources": {
+    "requirements": ".claude/state/runs/docker/requirements.md",
+    "adr": ".claude/state/runs/docker/adr.md"
+  },
+  "jira": {
+    "cloudId": "c39f4e77-8863-48a4-8134-1ebfcb36ad00",
+    "project": "KAN",
+    "site": "https://asnapper.atlassian.net"
+  },
+  "dispatch": {
+    "strategy": "parallel-fan-out",
+    "waves": [
+      {
+        "wave": 1,
+        "tasks": ["task-001", "task-002", "task-003"],
+        "notes": "All 3 tasks run truly in parallel. Each owns a different file. A1's parser test asserts properties of A2's workflow YAML, but both engineers write against the ADR's pinned literals (no file-level coordination needed)."
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "task-001",
+      "alias": "A1",
+      "title": "Dockerfile + .dockerignore + tests/test_dockerfile.py",
+      "jira_key": "KAN-29",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-29",
+      "issue_type": "Story",
+      "depends_on": [],
+      "worktree_branch": "feature/task-001-dockerfile",
+      "files_owned": {
+        "production": [
+          "Dockerfile",
+          ".dockerignore"
+        ],
+        "test": [
+          "tests/test_dockerfile.py"
+        ]
+      },
+      "files_read_only": [
+        "pyproject.toml",
+        "pipeline_status/",
+        ".claude/state/runs/docker/requirements.md",
+        ".claude/state/runs/docker/adr.md"
+      ],
+      "acceptance_criteria": [
+        "Dockerfile written verbatim from ADR §'Dockerfile structure (annotated)'",
+        ".dockerignore written verbatim from ADR Decision 10",
+        "tests/test_dockerfile.py contains DockerfileTests, DockerignoreTests, WorkflowTests classes",
+        "Tests use stdlib only (unittest, re, pathlib, os) — no yaml, no subprocess, no docker",
+        "Repo-root discovery walks up from __file__ looking for pyproject.toml (FR-41)",
+        "All tests pass when run alongside A2's workflow YAML in a merged worktree",
+        "Test suite runs in < 1 second (NFR-14)",
+        "No edits to pipeline_status/*, pyproject.toml, or any existing test file"
+      ],
+      "requirements_refs": ["FR-1..FR-21", "FR-34..FR-41", "NFR-14"],
+      "adr_refs": ["Decision 1", "Decision 2", "Decision 3", "Decision 4", "Decision 5", "Decision 9", "Decision 10"]
+    },
+    {
+      "id": "task-002",
+      "alias": "A2",
+      "title": ".github/workflows/docker-publish.yml",
+      "jira_key": "KAN-31",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-31",
+      "issue_type": "Story",
+      "depends_on": [],
+      "worktree_branch": "feature/task-002-workflow",
+      "files_owned": {
+        "production": [
+          ".github/workflows/docker-publish.yml"
+        ],
+        "test": []
+      },
+      "files_read_only": [
+        ".claude/state/runs/docker/requirements.md",
+        ".claude/state/runs/docker/adr.md"
+      ],
+      "acceptance_criteria": [
+        "Workflow YAML written verbatim from ADR §'GHA workflow shape (annotated)'",
+        "on: triggers include push (branches: [master], tags: ['v*']), pull_request, and workflow_dispatch",
+        "permissions block declares contents: read, packages: write",
+        "All uses: references pinned to @v3 or @v5 (no @latest anywhere)",
+        "Login step gated by if: ${{ github.event_name != 'pull_request' }}",
+        "platforms: linux/amd64,linux/arm64",
+        "push: ${{ github.event_name != 'pull_request' }}",
+        "Image path ghcr.io/asnapper/master-replicator present",
+        "Tag matrix via docker/metadata-action@v5 produces :latest, :sha-<short>, :vX.Y.Z per ADR Decision 7",
+        "Build-args VERSION, REVISION, CREATED passed to Dockerfile",
+        "No additional files modified"
+      ],
+      "requirements_refs": ["FR-22..FR-33", "NFR-3", "NFR-4", "NFR-8", "NFR-10"],
+      "adr_refs": ["Decision 6", "Decision 7"]
+    },
+    {
+      "id": "task-003",
+      "alias": "A3",
+      "title": "README Docker section (anchored)",
+      "jira_key": "KAN-33",
+      "jira_url": "https://asnapper.atlassian.net/browse/KAN-33",
+      "issue_type": "Story",
+      "depends_on": [],
+      "worktree_branch": "feature/task-003-readme",
+      "files_owned": {
+        "production": [
+          "README.md"
+        ],
+        "test": []
+      },
+      "files_read_only": [
+        ".claude/state/runs/docker/requirements.md",
+        ".claude/state/runs/docker/adr.md"
+      ],
+      "acceptance_criteria": [
+        "New section appended to END of README.md (no edits to existing sections)",
+        "Section bracketed by HTML-comment anchors: <!-- BEGIN: docker-section (Feature A) --> and <!-- END: docker-section (Feature A) -->",
+        "Section content matches ADR §'Task A3 — README.md' verbatim",
+        "Contains Quick start, Subcommands, Tags, Colour output, Non-root user, Multi-architecture, Building locally subsections",
+        "References image path ghcr.io/asnapper/master-replicator and UID/GID 65532",
+        "No other file touched"
+      ],
+      "requirements_refs": ["US-1..US-7", "FR-42", "A5"],
+      "adr_refs": ["Decision 8", "Implementation Notes / Task A3"]
+    }
+  ],
+  "cross_feature_notes": {
+    "sibling_feature": "helm",
+    "sibling_jira_keys_observed": ["KAN-30", "KAN-32", "KAN-34", "KAN-35 (likely)"],
+    "shared_file_with_sibling": "README.md",
+    "merge_contract": "A3 uses anchor 'docker-section (Feature A)'; Feature B is expected to use a different anchor (e.g. 'helm-section'). Both sections append independently and 3-way-merge cleanly. Cross-feature merge order is the Orchestrator's responsibility, not these tasks'.",
+    "shared_dependency_with_sibling": "Feature B's Helm chart pins this image at ghcr.io/asnapper/master-replicator (NFR-16). No build-time coupling; the Helm chart can reference :latest, :sha-<short>, or :vX.Y.Z published by A2's workflow."
+  }
+}
