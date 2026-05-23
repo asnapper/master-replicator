@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from pipeline_status.archive import add_archive_subparser
+from pipeline_status.diff_archives import add_diff_subparser
 from pipeline_status.formatting import (
     format_artefact_row,
     format_stage_line,
@@ -102,6 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="cmd", required=False)
     add_archive_subparser(subparsers)
     add_history_subparser(subparsers)
+    add_diff_subparser(subparsers)
     return parser
 
 
